@@ -6,7 +6,7 @@ Source: `code/evaluation/run_summary.json`, written by the run of `python code/m
 * Intent model configured: `nvidia/nemotron-3.5-lightning-30b-a3b` (provider: NVIDIA API, `integrate.api.nvidia.com`)
 * API key present during the run: False
 * Intent routing: {'baseline': 518, 'cache_hits': 0, 'llm': 0, 'llm_failures': 0, 'unresolved': 0}
-* OCR/vision: Tesseract (local, no tokens); vision model: not configured
+* OCR: Tesseract (local, no tokens); vision fallback model: `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (NVIDIA API) — configured but not called in this run (requires NVIDIA_API_KEY and the model being served)
 
 | Provider | Model | Calls | Failed calls | Input tokens | Output tokens | Total tokens | Avg tokens / request | Est. cost (USD) | Est. cost / request (USD) |
 |---|---|---|---|---|---|---|---|---|---|

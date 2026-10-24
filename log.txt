@@ -428,3 +428,28 @@ branch=main
 repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
 worktree=main
 parent_agent=none
+
+## [2026-10-25T01:35:00Z] Set vision fallback model to nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+
+User Prompt (verbatim, secrets redacted):
+set vision model as nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+
+Agent Response Summary:
+Made nvidia/nemotron-3-nano-omni-30b-a3b-reasoning the default vision-fallback model (NVIDIA_VISION_MODEL
+still overrides). It is only called when NVIDIA_API_KEY is set and the endpoint lists that exact model id
+(checked once per process, no substitution); <think> reasoning blocks are stripped and the token budget
+raised to 4096 for the reasoning model. Without a key nothing changes: full re-run produced a byte-identical
+output.csv, 0 model calls. Availability of the model is NOT verified (no API key in the environment).
+
+Actions:
+* Edited code/ghostaudit/extraction/vision.py, code/tests/test_extraction.py (+2 tests), code/.env.example,
+  README.md, code/evaluation/main.py; regenerated output.csv, evaluation_report.md, usage_report.md
+* Ran pytest → 44 passed; python code/main.py → 518 rows, 0 validation errors, output unchanged
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none

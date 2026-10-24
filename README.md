@@ -3,7 +3,8 @@
 A mostly deterministic audit agent: it reads every participant-facing evidence file, reconstructs each
 record's state at `audit_at`, applies `deletion_rules.csv`, and emits the ordered
 FINDING → REMEDIATION → VERIFICATION plan. An LLM (NVIDIA Nemotron) is used only where language
-understanding is required (ambiguous request intent), and a vision model only as an optional OCR fallback.
+understanding is required (ambiguous request intent), and a vision model (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`) only as a
+selective OCR fallback.
 
 ## Setup
 
@@ -34,7 +35,7 @@ grammar/order, evidence rules, no evidence captured after `audit_at`) and exits 
 | Stage | Module | What it does |
 |---|---|---|
 | Evidence parsing | `ghostaudit/evidence/` | 6 log line formats (trace-merged), snapshot bundles, service exports, operational-record JSON, SQLite dumps (primary + every replica table), handover text, PDFs and screenshots → `Observation(resource, system, category, present, identifiers, flow/restore flags, evidence_id)` |
-| Extraction | `ghostaudit/extraction/` | PDF: PyMuPDF native text → per-page quality gate → Tesseract on failing pages → optional vision model. Images: Tesseract on preprocessing variants (2x/3x upscale, threshold) → quality gate (confidence, malformed ids, broken emails, unknown emails) → optional vision model. Content-hash cache keyed by pipeline/model version; OCR'd emails are snapped to known identifiers. |
+| Extraction | `ghostaudit/extraction/` | PDF: PyMuPDF native text → per-page quality gate → Tesseract on failing pages → optional vision model. Images: Tesseract on preprocessing variants (2x/3x upscale, threshold) → quality gate (confidence, malformed ids, broken emails, unknown emails) → vision model `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (only with `NVIDIA_API_KEY` and when the endpoint lists that exact id; `<think>` output stripped). Content-hash cache keyed by pipeline/model version; OCR'd emails are snapped to known identifiers. |
 | Identity | `ghostaudit/identity.py` | Request email (current or historical) → `user_id` → all emails, phones, hashes (`sha256(lower(email))`), including old values from `user_audit_log.csv`. |
 | Linking | `ghostaudit/audit.py`, `ghostaudit/attribution.py` | Records linked by exact identifier matches in any evidence, data-catalog activity, and — for records only ever observed without identifiers — attribution of deletion-worker activity (time window, worker result ↔ reported status, learned timestamp-phase consistency). Records are partitioned between multiple requests of the same person by time. |
 | State at `audit_at` | `ghostaudit/audit.py` | Only evidence captured ≤ `audit_at`; latest file wins; copies in one snapshot are merged (a ghost in any replica keeps the record present); full snapshots that omit a record prove absence (never for retained categories). |

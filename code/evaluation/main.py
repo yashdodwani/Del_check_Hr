@@ -242,8 +242,9 @@ def write_reports(args):
               "## 7. Known limitations", "",
               "* The attribution step relies on timing regularities of the deletion workflow; when several same-status "
               "requests report at the same time and have no other linked records, the assignment can be wrong (see §4).",
-              "* No vision model was configured, so layout-sensitive screenshots rely on Tesseract plus identifier "
-              "validation; such cases are flagged `needs_vision` in the extraction cache.",
+              "* The vision fallback (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`) is only called with an "
+              "NVIDIA_API_KEY; without it, layout-sensitive screenshots rely on Tesseract plus identifier validation "
+              "and are flagged `needs_vision` in the extraction cache.",
               "* Records that never appear in participant data cannot be reported."]
     (EVALUATION_DIR / "evaluation_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     write_usage_report(full)
@@ -262,7 +263,10 @@ def write_usage_report(full):
              f"`integrate.api.nvidia.com`)",
              f"* API key present during the run: {llm.get('api_key_present', False)}",
              f"* Intent routing: {(full or {}).get('intent_stats', {})}",
-             f"* OCR/vision: Tesseract (local, no tokens); vision model: not configured", ""]
+             "* OCR: Tesseract (local, no tokens); vision fallback model: "
+             "`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (NVIDIA API) — "
+             + ("used" if any("omni" in m for m in usage) else "configured but not called in this run "
+                "(requires NVIDIA_API_KEY and the model being served)"), ""]
     lines += ["| Provider | Model | Calls | Failed calls | Input tokens | Output tokens | Total tokens | "
               "Avg tokens / request | Est. cost (USD) | Est. cost / request (USD) |",
               "|---|---|---|---|---|---|---|---|---|---|"]

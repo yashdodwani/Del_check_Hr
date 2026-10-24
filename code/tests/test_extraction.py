@@ -83,7 +83,7 @@ def test_image_vision_fallback_selected_but_unavailable(tmp_path, monkeypatch):
     img = Image.new("RGB", (300, 40), "white")
     ImageDraw.Draw(img).text((2, 2), "bkp_9 a@b", fill=(170, 170, 170), font=ImageFont.load_default(size=6))
     img.save(p)
-    monkeypatch.delenv("NVIDIA_VISION_MODEL", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)  # no key → vision cannot be used, must not be faked
     res = extract_image(p, cache=ExtractionCache(tmp_path / "c"))
     assert res["needs_vision"] is True
     assert res["method"] == "tesseract"
@@ -108,3 +108,18 @@ def test_synthetic_screenshot_ocr_recovers_ids(synthetic_dataset, tmp_path):
     res = extract_image(p, cache=ExtractionCache(tmp_path / "c"), allow_vision=False)
     assert "backup_90091" in res["text"] and "oyelaran.bisi@mail.example.test" in res["text"]
     assert all(l["box"] and len(l["box"]) == 4 for l in res["lines"])
+
+
+def test_vision_model_default_and_reasoning_stripped(monkeypatch):
+    from ghostaudit.extraction import vision
+    monkeypatch.delenv("NVIDIA_VISION_MODEL", raising=False)
+    assert vision.vision_model() == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    assert vision.strip_reasoning("<think>rows are...</think>\nbackup_1 | a@b.test") == "backup_1 | a@b.test"
+
+
+def test_vision_disabled_when_model_not_served(monkeypatch):
+    from ghostaudit.extraction import vision
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(vision, "_served", {})
+    monkeypatch.setattr(vision.NvidiaClient, "model_available", lambda self, m: False)
+    assert vision.vision_enabled() is False

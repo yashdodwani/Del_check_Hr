@@ -1,8 +1,9 @@
 """Selective vision-model fallback for layout-sensitive or low-quality OCR.
 
-Only invoked when the quality gate fails or layout carries meaning, and only when a vision model is
-configured (``NVIDIA_VISION_MODEL`` + ``NVIDIA_API_KEY``). Otherwise the caller keeps the OCR text and
-records ``vision_unavailable`` so the decision is auditable.
+Only invoked when the quality gate fails or layout carries meaning. The model is
+``nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`` on the NVIDIA API (override with ``NVIDIA_VISION_MODEL``).
+It is used only when ``NVIDIA_API_KEY`` is set *and* the endpoint lists that exact model id — no silent
+substitution. Otherwise the caller keeps the OCR text and records ``vision_unavailable``.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 
 from ..llm import LLMUnavailable, NvidiaClient
 
@@ -20,12 +22,29 @@ PROMPT = (
 )
 
 
+VISION_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+THINK_RE = re.compile(r"<think>.*?</think>", re.S)
+_served: dict = {}
+
+
 def vision_model() -> str | None:
-    return os.environ.get("NVIDIA_VISION_MODEL") or None
+    return os.environ.get("NVIDIA_VISION_MODEL") or VISION_MODEL
 
 
 def vision_enabled() -> bool:
-    return bool(vision_model() and os.environ.get("NVIDIA_API_KEY"))
+    """Key present and the exact model id served by the configured endpoint (checked once per process)."""
+    model = vision_model()
+    if not (model and os.environ.get("NVIDIA_API_KEY")):
+        return False
+    if model not in _served:
+        _served[model] = NvidiaClient(timeout=20).model_available(model)
+    return _served[model]
+
+
+def strip_reasoning(text: str) -> str:
+    """The reasoning model may prepend a <think> block; keep only the transcription."""
+    text = THINK_RE.sub("", text or "")
+    return text.split("</think>", 1)[-1].strip()
 
 
 def transcribe_image(pil_image, client: NvidiaClient | None = None, max_side: int = 1600) -> str | None:
@@ -45,7 +64,8 @@ def transcribe_image(pil_image, client: NvidiaClient | None = None, max_side: in
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
     ]}]
     try:
-        text, _ = client.chat(model, messages, max_tokens=1500)
-        return text
+        # reasoning models spend tokens thinking before answering, so allow a larger budget
+        text, _ = client.chat(model, messages, temperature=0.0, max_tokens=4096)
+        return strip_reasoning(text) or None
     except LLMUnavailable:
         return None
