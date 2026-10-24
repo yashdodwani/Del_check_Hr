@@ -85,10 +85,30 @@ class Auditor:
                 linked.setdefault(rid, f"catalog:{activity_id}")
         return linked, covering_files
 
+    def _anchor_times(self, rid: str) -> list[str]:
+        times = [self.index.files[o.evidence_id].captured_at for o in self.index.by_resource.get(rid, [])]
+        # evidence placement is the stronger signal; activity only when no evidence mentions the record
+        return times or [a["event_time"] for a in self.activity_by_resource.get(rid, [])]
+
+    @staticmethod
+    def _distance(times: list[str], start: str, end: str) -> float:
+        from datetime import datetime
+        p = lambda x: datetime.fromisoformat(x.replace("Z", "+00:00")).timestamp()
+        s, e = p(start), p(end)
+        best = float("inf")
+        for t in times:
+            v = p(t)
+            best = min(best, 0.0 if s <= v <= e else min(abs(v - s), abs(v - e)))
+        return best
+
     def prepare(self, requests: list[dict]) -> None:
-        """Link every request in the pool up front, then attribute identifier-less workflow activity."""
+        """Link every request in the pool up front, then attribute identifier-less workflow activity.
+
+        When one person filed several requests, each linked record is given to the request whose
+        [requested_at, audit_at] window is closest to the record's evidence/activity timestamps.
+        """
         self._linked_cache = {}
-        pool = []
+        pool, by_user = [], defaultdict(list)
         for r in requests:
             key = r.get("_key") or r["case_id"]
             uid = self.resolver.resolve_email(r["email"])
@@ -96,7 +116,21 @@ class Auditor:
                 continue
             linked, _ = self.linked_resources(self.resolver.subject(uid), r["audit_at"])
             self._linked_cache[key] = linked
-            pool.append(dict(r, _key=key))
+            r = dict(r, _key=key)
+            pool.append(r)
+            by_user[uid].append(r)
+        for uid, reqs in by_user.items():
+            if len(reqs) < 2:
+                continue
+            union = {}
+            for r in reqs:
+                union.update(self._linked_cache[r["_key"]])
+            parts = {r["_key"]: {} for r in reqs}
+            for rid, reason in union.items():
+                times = self._anchor_times(rid)
+                best = min(reqs, key=lambda r: (self._distance(times, r["requested_at"], r["audit_at"]), r["_key"]))
+                parts[best["_key"]][rid] = reason
+            self._linked_cache.update(parts)
         self.attribution = WorkflowAttribution(self.ds.activity, pool,
                                                {k: set(v) for k, v in self._linked_cache.items()})
 
@@ -188,6 +222,8 @@ class Auditor:
         subject = self.resolver.subject(user_id, as_of=cutoff)
         linked, covering = self.linked_resources(subject, cutoff)
         key = case.get("_key") or case["case_id"]
+        if key in getattr(self, "_linked_cache", {}):
+            linked = dict(self._linked_cache[key])
         if getattr(self, "attribution", None):
             for rid, aid in self.attribution.resources_for(key).items():
                 linked.setdefault(rid, f"workflow:{aid}")

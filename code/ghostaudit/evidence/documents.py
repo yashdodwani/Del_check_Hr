@@ -76,6 +76,12 @@ def observations_from_text(text: str, evidence_id: str, captured_at: str, *, ali
             if re.search(r"(?<![\w.])" + re.escape(alias.lower()) + r"(?![\w])", line.lower()):
                 touch(rid, line, idx)
 
+    # a support document describing an uploaded file is the attachment itself, not a conversation
+    if re.search(r"\battachment\b|\buploader\b|\.pdf\b", text, re.I):
+        for o in found.values():
+            if o.category == "SUPPORT_MESSAGE":
+                o.category = "SUPPORT_ATTACHMENT"
+
     # documents about one subject: attach doc-level identifiers to records that printed none
     single_subject = len(set(doc_emails)) <= 1 and len(doc_users) <= 1
     for o in found.values():

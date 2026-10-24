@@ -148,10 +148,11 @@ def _interpret(rec: dict, ctx: dict, evidence_id: str) -> Observation | None:
         o.identifiers = {"email": rec.get("matched_value")}
         return o
     if ev in ("contact_query_completed",):
-        return obs(present=_present_from_rows(rec))
+        # replicated contact-index copy of the subject's details: a secondary identifier record
+        return obs(present=_present_from_rows(rec), category="SECONDARY_IDENTIFIER")
     if ev == "deletion_marker_check":
         found = to_bool(rec.get("marker_found"))
-        return obs(present=None if found is None else not found)
+        return obs(present=None if found is None else not found, category="SECONDARY_IDENTIFIER")
     if ev in ("connector_config_read_completed", "connector_heartbeat", "connector_config_loaded"):
         o = obs(present=True)
         o.flow_enabled = to_bool(rec.get("enabled"))

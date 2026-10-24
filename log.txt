@@ -120,3 +120,20 @@ Extraction cache: second run 15/15 cache hits.
 Duration: ~55 min
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-25T00:05:00Z] Milestone 4 — Per-request scoping, attachment/replica categories, tie-breaks
+
+Work: Debugged remaining public-sample mismatches:
+* Same person, two requests (sample case_17 vs test case_46): linked records now partitioned to the
+  request whose [requested_at, audit_at] window is nearest the record's evidence timestamps.
+* Support PDF describing an uploaded file → SUPPORT_ATTACHMENT (rule_06 DELETE), not SUPPORT_MESSAGE.
+* support_replica contact-index copies → SECONDARY_IDENTIFIER (rule_02 DELETE).
+* Account attribution: submissions within 15 min of reported_at win ties; second pass for a single
+  nearby submission regardless of result; tight-window attribution for requests without any account event.
+Files: code/ghostaudit/{audit,attribution}.py, evidence/{documents,logs}.py
+Results (public samples): status 1.000, sequence 0.906, step P/R 1.000/0.9845.
+Remaining misses are not recoverable from participant data (account_004 has no activity/evidence;
+audit_record_6645/5569 appear in no file). NOTE: samples were used for tuning → optimistic estimate.
+Duration: ~25 min
+tool=Claude Code
+model=claude-opus-5-5
