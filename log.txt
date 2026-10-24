@@ -175,3 +175,19 @@ Results: synthetic 10/10 status & sequence, step P/R 1.0/1.0; public samples unc
 S10: page 1 native text kept, page 2 OCR'd via Tesseract (methods native,tesseract).
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-25T01:05:00Z] Milestone 7 — Automated regression tests
+
+Work: Added pytest suite (code/tests): PDF native→OCR fallback per page, cache hit/miss + content-keyed
+cache, quality gate on non-empty garbage / malformed ids / broken emails, OCR email correction against
+known identifiers, vision fallback selection (unavailable → recorded; configured → used, via monkeypatched
+transcriber — no real vision call), 16 controlled multilingual intent cases, LLM adapter validation with a
+fake client (invalid JSON / bad label / timeout → bounded retries → UNRESOLVED, never authorises; model
+not served → no substitution), identity resolution, step ordering, synthetic suite scores, cut-off
+enforcement, NOT_APPLICABLE, retention/redaction, alias resolution, replica drift, evidence-reference
+rules, output schema and validator.
+Run: `.venv/bin/python -m pytest -q code/tests` → first run 41 passed / 1 failed (my test hard-coded the
+wrong synthetic file id; fixed the test to look ids up from the manifest) → 42 passed in 4.6 s.
+Files: code/tests/{conftest,test_extraction,test_intent,test_audit}.py
+tool=Claude Code
+model=claude-opus-5-5
