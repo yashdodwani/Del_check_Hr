@@ -154,3 +154,24 @@ Sample run through the same entry point: status 1.000, sequence 0.906, step P/R 
 Files: code/main.py, code/ghostaudit/{intent,output,pipeline}.py, output.csv, code/evaluation/run_summary.json
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-25T00:50:00Z] Milestone 6 — Synthetic regression dataset (10 scenarios) and OCR fixes
+
+Work: Wrote code/synthetic/generate.py (seed 20261025) producing a schema-identical mini dataset in
+code/synthetic/build/dataset (git-ignored, regenerated deterministically) with ground truth kept
+separately in code/synthetic/expected_output.csv. Scenarios: S01 search index survives primary
+deletion; S02 support attachment; S03 primary/replica drift (SQLite dump); S04 post-audit_at evidence
+must be ignored; S05 mentions deletion but does not authorise; S06 complete with evidence for every
+check; S07 retain + redact (shared support conversation, tombstone, audit record); S08 historical email
+alias + old-email hash; S09 small-text UI screenshot; S10 PDF with one digital and one scanned page.
+First run: 9/10 — S09 failed: Tesseract at 2x read backup_90091 as "backup.00001" and dropped the email
+domain dots, and the quality gate did not flag it; the row's restore status was also read from the
+neighbouring row ("Blocked").
+Fixes: added 3x upscaling variant; quality gate now flags malformed ids (prefix + '.'/',' separator)
+and @-tokens with dot-less domains; backup restore status read from the row first. Bumped
+PIPELINE_VERSION → extract-v2 (cache invalidated, 15 files re-extracted).
+Results: synthetic 10/10 status & sequence, step P/R 1.0/1.0; public samples unchanged
+(status 1.000, sequence 0.906); full output.csv byte-identical to the previous run (deterministic).
+S10: page 1 native text kept, page 2 OCR'd via Tesseract (methods native,tesseract).
+tool=Claude Code
+model=claude-opus-5-5

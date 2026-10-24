@@ -18,7 +18,9 @@ ARTIFACT_RE = re.compile(r"\(cid:\d+\)|\ufffd|[\x00-\x08\x0b\x0c\x0e-\x1f]")
 # OCR confusions seen in UI screenshots: gmall/gmai1, 0/O and 1/l swaps inside ids
 SUSPICIOUS_ID_RE = re.compile(r"\b(?:acc0unt|supp0rt|anal ytics|data f1ow)\b|@gmall\.|@gmai1\.|@0utlook\.", re.I)
 MALFORMED_RESOURCE_RE = re.compile(r"\b(account|search|analytics|support|export|backup|data_flow|audit_record|"
-                                   r"tombstone)[ _\-]?[O0-9lI|]*[OlI|][O0-9lI|]*\b")
+                                   r"tombstone)(?:[.,:;'][0-9OlI|]+|[ _\-]?[O0-9lI|]*[OlI|][O0-9lI|]*)\b")
+# an @-token whose domain lost its dots ("name@mailexampletest") is a misread email
+BROKEN_EMAIL_RE = re.compile(r"\b[\w.+\-]+@[A-Za-z0-9\-]{6,}\b(?!\.)")
 
 
 @dataclass
@@ -61,6 +63,8 @@ def assess(text: str, *, page_area: float | None = None, expect_identifiers: boo
     suspicious = SUSPICIOUS_ID_RE.findall(text)
     malformed = [m.group(0) for m in MALFORMED_RESOURCE_RE.finditer(text) if not RESOURCE_RE.fullmatch(m.group(0))]
     suspicious += malformed
+    suspicious += [m.group(0) for m in BROKEN_EMAIL_RE.finditer(text)
+                   if not any(m.group(0) in e for e in ids["emails"])]
 
     score = 1.0
     if printable < 0.95:

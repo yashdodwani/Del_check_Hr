@@ -17,6 +17,7 @@ from .common import make_obs
 NEGATIVE_RE = re.compile(r"\b(not found|no record|deleted|purged|absent|404)\b", re.I)
 FLOW_OFF_RE = re.compile(r"\b(paused|disabled|stopped|inactive)\b", re.I)
 RESTORE_OFF_RE = re.compile(r"\b(restore blocked|blocked|restore disabled|restore denied|deny)\b", re.I)
+RESTORE_ON_RE = re.compile(r"\b(allowed|restorable|can (?:still )?be restored)\b", re.I)
 RETAIN_UNTIL_RE = re.compile(r"retain(?:ed)? until\s+(\d{1,2} \w{3} \d{4}|\d{4}-\d\d-\d\d)", re.I)
 
 
@@ -60,7 +61,12 @@ def observations_from_text(text: str, evidence_id: str, captured_at: str, *, ali
         if o.category == "DATA_FLOW":
             o.flow_enabled = not bool(FLOW_OFF_RE.search(line))
         if o.category == "BACKUP_ARCHIVE":
-            o.restore_allowed = not bool(RESTORE_OFF_RE.search(window))
+            if RESTORE_OFF_RE.search(line):
+                o.restore_allowed = False
+            elif RESTORE_ON_RE.search(line):
+                o.restore_allowed = True
+            else:  # status may sit in a detail panel next to the row
+                o.restore_allowed = not bool(RESTORE_OFF_RE.search(window))
         m = RETAIN_UNTIL_RE.search(window)
         if m:
             o.retention_until = m.group(1)

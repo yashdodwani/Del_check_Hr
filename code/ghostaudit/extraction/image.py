@@ -20,14 +20,15 @@ except ImportError:  # pragma: no cover - surfaced in result metadata
     pytesseract = None
 
 # preprocessing variants tried in order; the best-scoring transcript wins
-VARIANTS = ("gray_x2", "gray_x2_threshold", "original")
+VARIANTS = ("gray_x2", "gray_x3", "gray_x2_threshold", "original")
 
 
 def _preprocess(img: Image.Image, variant: str) -> Image.Image:
     g = ImageOps.grayscale(img)
     if variant == "original":
         return img.convert("RGB")
-    g = g.resize((g.width * 2, g.height * 2), Image.LANCZOS)
+    factor = 3 if variant.startswith("gray_x3") else 2  # small UI text needs more upscaling
+    g = g.resize((g.width * factor, g.height * factor), Image.LANCZOS)
     if variant == "gray_x2_threshold":
         g = ImageOps.autocontrast(g).filter(ImageFilter.SHARPEN)
         g = g.point(lambda p: 255 if p > 165 else 0)
