@@ -137,3 +137,20 @@ audit_record_6645/5569 appear in no file). NOTE: samples were used for tuning �
 Duration: ~25 min
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-25T00:25:00Z] Milestone 5 — Intent classifier, pipeline entry point, first full run
+
+Work: Added intent classification (multilingual deterministic baseline + NVIDIA Nemotron adapter with
+strict JSON schema, response validation, bounded retries, result cache, explicit UNRESOLVED state;
+only DELETE_REQUEST authorises deletion). Added output writer + contract validator and code/main.py.
+Baseline results: 32/32 samples → DELETE_REQUEST; test set 508 DELETE / 10 NON_DELETION (case_533–542:
+phone correction, marketing opt-out, export/copy, login help, information request), consistent with
+the 10 independent CLASSIFY_REQUEST "non-deletion" rows in system_activity.csv.
+NVIDIA API: NVIDIA_API_KEY not present in the environment → model availability NOT verified, no API
+calls made; pipeline ran with --no-llm (no AMBIGUOUS texts remained, so no request was left unresolved).
+Full run: `python code/main.py --no-llm` → output.csv, 518 rows, INCOMPLETE 359 / COMPLETE 149 /
+NOT_APPLICABLE 10, validator errors 0, runtime ~10 s (extraction cache warm: 15/15 hits).
+Sample run through the same entry point: status 1.000, sequence 0.906, step P/R 1.000/0.985.
+Files: code/main.py, code/ghostaudit/{intent,output,pipeline}.py, output.csv, code/evaluation/run_summary.json
+tool=Claude Code
+model=claude-opus-5-5
