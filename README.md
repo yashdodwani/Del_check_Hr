@@ -1,4 +1,52 @@
-# HackerRank Orchestrate - October 2026
+# Ghost Data Still Exists — deletion-audit agent (solution)
+
+A mostly deterministic audit agent: it reads every participant-facing evidence file, reconstructs each
+record's state at `audit_at`, applies `deletion_rules.csv`, and emits the ordered
+FINDING → REMEDIATION → VERIFICATION plan. An LLM (NVIDIA Nemotron) is used only where language
+understanding is required (ambiguous request intent), and a vision model only as an optional OCR fallback.
+
+## Setup
+
+```bash
+# system dependency: Tesseract OCR with English data
+sudo apt install tesseract-ocr        # macOS: brew install tesseract
+python3 -m venv .venv
+.venv/bin/pip install -r code/requirements.txt
+cp code/.env.example .env              # optional: add NVIDIA_API_KEY (never commit .env)
+```
+
+## Run
+
+```bash
+.venv/bin/python code/main.py                 # all 518 requests → ./output.csv (+ code/evaluation/run_summary.json)
+.venv/bin/python code/main.py --no-llm        # deterministic baseline only, no API calls
+.venv/bin/python code/evaluation/main.py      # samples + synthetic + intent benchmark → evaluation reports
+.venv/bin/python -m pytest -q code/tests      # regression tests
+.venv/bin/python code/synthetic/generate.py   # rebuild the synthetic dataset (deterministic)
+.venv/bin/python code/package.py              # build code.zip (README.md + code/, no dataset/caches/secrets)
+```
+
+`main.py` validates the written `output.csv` against the contract (header, 518 sorted rows, step
+grammar/order, evidence rules, no evidence captured after `audit_at`) and exits non-zero on any violation.
+
+## Architecture
+
+| Stage | Module | What it does |
+|---|---|---|
+| Evidence parsing | `ghostaudit/evidence/` | 6 log line formats (trace-merged), snapshot bundles, service exports, operational-record JSON, SQLite dumps (primary + every replica table), handover text, PDFs and screenshots → `Observation(resource, system, category, present, identifiers, flow/restore flags, evidence_id)` |
+| Extraction | `ghostaudit/extraction/` | PDF: PyMuPDF native text → per-page quality gate → Tesseract on failing pages → optional vision model. Images: Tesseract on preprocessing variants (2x/3x upscale, threshold) → quality gate (confidence, malformed ids, broken emails, unknown emails) → optional vision model. Content-hash cache keyed by pipeline/model version; OCR'd emails are snapped to known identifiers. |
+| Identity | `ghostaudit/identity.py` | Request email (current or historical) → `user_id` → all emails, phones, hashes (`sha256(lower(email))`), including old values from `user_audit_log.csv`. |
+| Linking | `ghostaudit/audit.py`, `ghostaudit/attribution.py` | Records linked by exact identifier matches in any evidence, data-catalog activity, and — for records only ever observed without identifiers — attribution of deletion-worker activity (time window, worker result ↔ reported status, learned timestamp-phase consistency). Records are partitioned between multiple requests of the same person by time. |
+| State at `audit_at` | `ghostaudit/audit.py` | Only evidence captured ≤ `audit_at`; latest file wins; copies in one snapshot are merged (a ghost in any replica keeps the record present); full snapshots that omit a record prove absence (never for retained categories). |
+| Policy & steps | `ghostaudit/policy.py` | Rule per category (DELETE / REDACT / ANONYMIZE / RETAIN, tombstone keeps only the stable reference, flows must be disabled, backups must be restore-blocked), contract ordering (phase → operation table → system_id → resource_id), evidence ids only on findings and on COMPLETE verifications. |
+| Intent | `ghostaudit/intent.py` | Multilingual deterministic baseline; only AMBIGUOUS texts go to `nvidia/nemotron-3.5-lightning-30b-a3b` (strict JSON schema, validation, bounded retries, cache, exact-model availability check). Failures stay `UNRESOLVED` and never authorise deletion. |
+
+Prompts live in `code/ghostaudit/intent.py` (`SYSTEM_PROMPT`) and `code/ghostaudit/extraction/vision.py` (`PROMPT`).
+Evaluation results: `code/evaluation/evaluation_report.md`; token/cost report: `code/evaluation/usage_report.md`.
+
+---
+
+# HackerRank Orchestrate - October 2026 (challenge reference)
 
 ## Ghost Data Still Exists
 

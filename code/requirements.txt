@@ -1,0 +1,5 @@
+# Python 3.10+ ; system package: tesseract-ocr (eng) — e.g. `apt install tesseract-ocr` / `brew install tesseract`
+pymupdf>=1.24
+pytesseract>=0.3.10
+pillow>=10.1
+pytest>=8.0

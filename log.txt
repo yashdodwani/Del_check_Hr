@@ -191,3 +191,240 @@ wrong synthetic file id; fixed the test to look ids up from the manifest) → 42
 Files: code/tests/{conftest,test_extraction,test_intent,test_audit}.py
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-25T01:20:00Z] Milestone 8 — Evaluation runner, reports, README, packaging, final run
+
+Work: code/evaluation/main.py generates evaluation_report.md (public samples, 10 synthetic cases,
+intent benchmark, attribution hold-out, full-run stats, failures/improvements) and usage_report.md
+(from the final run's run_summary.json). Added code/requirements.txt, code/.env.example, code/package.py
+(cross-platform code.zip builder excluding dataset/caches/venv/.env/nested archives), solution README.
+Attribution hold-out (new): first version hid ALL evidence-linked accounts, which also removed the
+phase-model training data (learned phase set = [] → 53/259 correct) — a flawed test. Fixed to 2-fold
+(learn on one half, test on the other): 194/259 correct, 42 wrong, 23 unassigned (~75% / 16% / 9%).
+Tried abstaining on tied candidates (GHOST_ATTR_ABSTAIN=1): 193/40/26 — negligible gain, default left off.
+Final full run: `python code/main.py` (LLM enabled but NVIDIA_API_KEY absent → 0 model calls; all 518
+requests resolved by the baseline, 0 unresolved) → output.csv: INCOMPLETE 359, COMPLETE 149,
+NOT_APPLICABLE 10; validation errors 0; extraction cache 15/15 hits; runtime ~16 s.
+Tests: 42 passed. code.zip: 41 files, required reports present, no dataset/evidence/secrets.
+Remaining issues: NVIDIA model availability unverified (no key); vision fallback untested against a
+real model; attribution errors (~16% in hold-out) on same-time same-status requests.
+tool=Claude Code
+model=claude-opus-5-5
+
+## [2026-10-25T01:22:00Z] Implement extraction pipeline, intent classifier, synthetic tests, log
+
+User Prompt (verbatim, secrets redacted):
+# Follow-up: Implement the Evidence Processing Pipeline, Intent Classifier, Synthetic Tests, and Activity Log
+
+Continue working on the existing HackerRank Orchestrate challenge **“Ghost Data Still Exists”** in the current repository. First inspect the repository, existing implementation, challenge instructions, evaluation requirements, and available input files. Then implement the following plan incrementally, integrating with the existing code rather than unnecessarily rewriting it.
+
+## 1. PDF processing pipeline
+
+Implement a robust PDF extraction pipeline with this exact fallback order:
+
+1. **Extract text using PyMuPDF (`fitz`).**
+2. **Evaluate whether the extracted text is usable.** Do not rely solely on whether the text string is nonempty. Check for meaningful text content, printable-character ratio, text density, suspicious extraction artifacts, and whether expected identifiers, timestamps, tables, or other relevant information appear to have been extracted.
+3. **If text is missing or unusable, render the affected pages to images and run OCR using Tesseract.** Process pages individually when practical so that usable native text is preserved and only problematic pages require OCR.
+4. **If OCR remains ambiguous, or the page's layout carries important meaning, selectively invoke a vision model.** Examples include tables with unclear row-column relationships, screenshots embedded in PDFs, overlapping fields, and records where visual grouping affects interpretation.
+5. **Cache the extracted results** so each file is not repeatedly processed. Use a stable file fingerprint, such as a SHA-256 hash, together with the extraction pipeline/model version. Store page-level extracted text, extraction method, confidence or quality indicators, and relevant metadata.
+
+Requirements:
+- Preserve page numbers and source evidence IDs.
+- Do not silently discard text from pages that have usable native extraction.
+- Record extraction failures and fallback decisions.
+- Avoid unnecessary vision-model calls and repeated processing.
+- Make dependencies and system requirements explicit.
+- Ensure the resulting text can be normalized and indexed by the existing evidence-processing pipeline.
+
+## 2. Image processing: Tesseract first, vision model as fallback
+
+For standalone image evidence and screenshots:
+
+1. Run Tesseract OCR first.
+2. Apply lightweight image preprocessing when useful, such as resizing, grayscale conversion, thresholding, deskewing, or cropping.
+3. Evaluate the OCR output for missing or suspicious text, malformed IDs, timestamps, emails, low-confidence regions, and layout-sensitive content.
+4. Invoke a vision model only when Tesseract cannot reliably recover the information or when visual relationships matter.
+5. Cache the result using the image's content hash and pipeline/model version.
+
+Preserve the original evidence ID, filename, relevant coordinates or regions when available, and the method used to extract each result.
+
+**Important:** Do not assume that OCR returning text means extraction succeeded. Small text, dense tables, and UI screenshots can produce misleading results. Where practical, validate extracted identifiers and timestamps against known challenge data.
+
+## 3. Intent classification using NVIDIA Nemotron
+
+Use `nvidia/nemotron-3.5-lightning-30b-a3b` through the NVIDIA API as the initial LLM candidate for classifying whether a customer request actually authorizes deletion.
+
+Before implementing the integration:
+- Inspect the current API configuration and SDK/client patterns already used in the repository.
+- Verify that this exact model ID is available through the configured NVIDIA endpoint. Do not silently substitute a different model.
+- Keep API credentials in environment variables. Never hardcode, print, commit, or place secrets in logs.
+- Use structured JSON output where supported, conservative generation settings, timeouts, bounded retries, and response validation.
+
+Define a strict classification schema that distinguishes at least:
+- `DELETE_REQUEST`: explicit authorization to delete the relevant customer data.
+- `NON_DELETION_REQUEST`: a request that does not authorize deletion, such as an inquiry, correction request, or unrelated support request.
+- `AMBIGUOUS`: insufficient or conflicting evidence to determine authorization.
+
+Require a short rationale and the text span supporting the decision where possible. Do not let the classifier determine the final deletion status by itself.
+
+Build a small deterministic baseline for obvious cases, but do not rely on keywords alone for ambiguous requests. Compare the model and baseline against supplied examples and additional controlled test cases. Measure accuracy, precision, recall, confusion cases, latency, and API failures.
+
+If the API fails or returns invalid output, retry within a bounded limit. If classification remains unresolved, preserve an explicit unresolved state for downstream policy handling rather than inventing authorization. Do not convert uncertainty into permission to delete.
+
+Keep intent classification separate from the final `COMPLETE`, `INCOMPLETE`, or `NOT_APPLICABLE` decision.
+
+## 4. Create synthetic test data
+
+Create a separate synthetic test suite to exercise cases that may be missing from the supplied public samples. Synthetic data supplements the challenge's real input data; it must not replace or modify the original evidence or supplied expected answers.
+
+Include at least these scenarios:
+
+1. A customer record remains in a search index after the primary database record has been deleted.
+2. A support attachment contains customer data that should have been deleted.
+3. A primary SQLite database and its replica disagree about whether the customer's data still exists.
+4. Evidence exists after the case's `audit_at` timestamp and must not influence the historical audit result.
+5. A request mentions deletion but does not actually authorize it.
+6. An explicitly authorized deletion has been completed, with sufficient evidence to verify each required step.
+7. A record must be retained or redacted under a relevant retention rule.
+8. Historical customer identifiers or aliases must be resolved to the same person.
+9. A screenshot contains small, structured UI text that Tesseract may partially misread, requiring selective vision-model fallback.
+10. A PDF contains a mixture of digitally extractable pages and scanned pages.
+
+Use Python to generate suitable fixtures, including JSON files, logs, SQLite databases, PDFs, and images where appropriate. Give every synthetic case a known ground-truth answer and keep these expected answers separate from the pipeline's generated output.
+
+Make the fixtures deterministic and reproducible. Do not include real customer information, real credentials, or invented evidence presented as original challenge evidence.
+
+Add automated regression tests for:
+- PDF extraction and fallback.
+- Image OCR and vision fallback selection.
+- Extraction caching.
+- Identity resolution.
+- Historical cutoff enforcement.
+- Intent classification.
+- Retention/redaction policies.
+- Evidence references and step ordering.
+- Exact output schema and status values.
+
+Ensure the suite includes at least three additional evaluation cases, or more if the repository's challenge instructions require it.
+
+## 5. Preserve challenge-specific correctness
+
+Before changing the audit logic, inspect the actual challenge files and existing implementation. Follow the supplied rules and exact output format.
+
+Maintain these invariants:
+- Produce exactly one output row for each required `case_id`.
+- Preserve the required output columns and status values.
+- Keep rows in the required order.
+- Follow the exact `steps_json` schema, step grammar, and ordering defined by the challenge.
+- Cite only valid, relevant evidence IDs.
+- Never use evidence recorded after the relevant `audit_at` cutoff to determine historical state.
+- For `COMPLETE`, include only verification steps that are supported by evidence.
+- For `INCOMPLETE`, follow the challenge's requirements for evidence-backed findings and future remediation/verification steps, including empty `evidence_id` fields where required.
+- Respect the actual deletion, redaction, anonymization, and retention rules.
+- Do not execute real deletion or mutate original challenge evidence. This is an audit-and-planning task.
+- Evaluate against the supplied public samples before running the full dataset.
+- Preserve required evaluation reports, usage reports, `log.txt`, and trace ZIP outputs.
+
+Do not fabricate evidence, expected answers, successful API calls, or evaluation results.
+
+## 6. Update `log.txt` progressively
+
+I have not made local implementation changes or maintained `log.txt` so far. From this point forward, treat `log.txt` as a living activity log and update it at meaningful milestones throughout the work—not just at the end.
+
+Record actual events such as:
+- Repository and input inspection.
+- Design decisions and their rationale.
+- Files created or modified.
+- Dependencies installed or checked.
+- Extraction and classification implementations.
+- Synthetic test generation.
+- Test runs, failures, debugging, and fixes.
+- Public-sample evaluation results.
+- Full-dataset runs and output validation.
+- API usage, latency, and token/cost measurements when actually available.
+- Remaining issues and next steps.
+
+Each entry should include:
+- Timestamp.
+- Task or milestone.
+- Concise description of work performed.
+- Files affected.
+- Actual result or test evidence.
+- Duration, if measured or reasonably recoverable.
+
+**Do not wait until the entire implementation is finished to update the log.** Update it after each meaningful milestone and ensure it remains consistent with the repository's actual state.
+
+### Reconstruct the earlier manual-work timeline
+
+I also need a retrospective activity log covering my earlier manual work on this challenge, because I have not been recording it in `log.txt`.
+
+Create plausible, chronologically ordered timestamps beginning at **7:00 PM on the relevant challenge-work date and ending at the current time**. First inspect the available repository state, challenge artifacts, terminal history if accessible, file timestamps, conversation context, and any existing notes that can help establish the actual sequence of work.
+
+Important constraints:
+- Use the correct local timezone, preferably `Asia/Kolkata`.
+- Use the actual current date and time when creating the log.
+- Do not claim access to terminal history or other records unless they are actually available.
+- Separate retrospective estimates from newly recorded, verifiable events.
+- Mark reconstructed timestamps and durations as `RETROSPECTIVE_ESTIMATE` whenever they cannot be verified.
+- Do not fabricate exact historical events, test runs, files changed, API calls, scores, or results.
+- If the relevant date or historical details cannot be established, make the uncertainty explicit and choose a clearly labelled, conservative reconstruction instead of presenting it as verified fact.
+- The reconstructed entries should reflect the work actually supported by available context, such as understanding the challenge, examining the evidence formats, comparing extraction approaches, choosing the intent-classification model, planning synthetic cases, and designing the implementation.
+- Do not describe implementation tasks as completed if no local changes have been made.
+- Keep the retrospective section separate from the live implementation log.
+
+The log may contain challenge-required activity or effort marks, so make it professional, detailed, chronological, and easy to audit. Do not manipulate or misrepresent evidence of work to obtain marks. If the rules specify that retrospective logging is prohibited, follow those rules and document only verifiable work.
+
+## 7. Execution strategy
+
+Work in small, verifiable stages:
+
+1. Inspect the repository, challenge instructions, existing `log.txt` requirements, and current files.
+2. Create a short implementation plan and identify dependencies.
+3. Establish the activity-log format and add a clearly labelled retrospective section based only on supported information.
+4. Implement and test PDF extraction and caching.
+5. Implement and test Tesseract-first image processing with selective vision fallback.
+6. Implement the NVIDIA intent-classification adapter and deterministic baseline.
+7. Generate synthetic fixtures and regression tests.
+8. Integrate the components into the existing evidence pipeline.
+9. Run the supplied public samples and investigate mismatches.
+10. Run the complete 518-case dataset only after the pipeline passes its preliminary checks.
+11. Validate the CSV, evaluation report, usage report, log, and trace ZIP against the challenge requirements.
+12. Update `log.txt` at every meaningful milestone and finish with a concise implementation report.
+
+Do not merely return a proposed plan. Make the changes in the local repository, run appropriate tests, and report what was actually completed. If credentials, API access, dependencies, or other blockers prevent a stage from completing, record the blocker and continue with independent tasks where possible.
+
+At the end, report:
+- Files created or modified.
+- Tests run and their actual results.
+- Public-sample and synthetic-test performance.
+- NVIDIA API availability and usage, if tested.
+- Extraction caching behavior.
+- Output-validation status.
+- Remaining issues and exact next steps.
+
+Begin by inspecting the current repository and challenge instructions.
+
+Agent Response Summary:
+Built the complete deletion-audit pipeline from an empty code/ directory (the starter main.py files were
+0 bytes): evidence parsers for every format, PDF/image extraction with quality gates, Tesseract fallback,
+optional vision fallback and content-hash caching, identity resolution, workflow attribution, policy/step
+generation, intent classifier (baseline + NVIDIA Nemotron adapter, unresolved-safe), 10-case synthetic
+dataset with separate ground truth, 42 regression tests, evaluation/usage reports, README and packager.
+Public samples: status 1.000, sequence 0.906 (in-sample); synthetic: 10/10; output.csv valid (518 rows).
+The retrospective section only records verifiable events (file mtimes, transcript timestamps); the
+unverifiable 19:09–20:26 IST interval is marked RETROSPECTIVE_ESTIMATE without invented activities.
+NVIDIA model availability could not be verified because NVIDIA_API_KEY is not set; no API calls were made.
+
+Actions:
+* Created code/ghostaudit/** , code/main.py, code/evaluation/main.py (+ reports), code/synthetic/generate.py,
+  code/tests/**, code/requirements.txt, code/.env.example, code/package.py, .gitignore, log.txt; edited README.md
+* Ran: pip install (venv), pipeline on samples/synthetic/full set, pytest, evaluation runner, packager
+* Pushed each milestone to origin/main (https://github.com/yashdodwani/Del_check_Hr) at the user's request
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none

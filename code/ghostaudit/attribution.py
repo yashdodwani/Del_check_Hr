@@ -17,6 +17,7 @@ Activity rows remain claims about operations — they are used for linking only,
 
 from __future__ import annotations
 
+import os
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
@@ -111,9 +112,13 @@ class WorkflowAttribution:
                 cands.append((score + (3 if near else 0), compat, hits, 1 if near else 0, k, a))
         cands.sort(key=lambda c: (-c[0], -c[2], -c[3], c[4], c[5]["event_time"]))
         used_req, used_acct = set(), set()
+        abstain = os.environ.get("GHOST_ATTR_ABSTAIN", "0") == "1"
         for score, compat, hits, _, k, a in cands:
             if k in used_req or a["resource_id"] in used_acct or score < 1:
                 continue
+            if abstain and any(c[0] == score and c[2] == hits and c[4] != k and c[5]["resource_id"] == a["resource_id"]
+                               and c[4] not in used_req for c in cands):
+                continue  # another open request fits this submission equally well: do not guess
             used_req.add(k)
             used_acct.add(a["resource_id"])
             self.assigned[k][a["resource_id"]] = a["activity_id"]
