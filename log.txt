@@ -1,0 +1,99 @@
+# log.txt — HackerRank Orchestrate (October 2026) — Ghost Data Still Exists
+# Append-only activity log. Timezone for human-readable times: Asia/Kolkata (IST, +05:30).
+# ISO timestamps are UTC unless suffixed +05:30.
+#
+# Section A: RETROSPECTIVE (reconstructed from verifiable sources only)
+# Section B: LIVE LOG (recorded as the work happens)
+
+==========================================================================================
+SECTION A — RETROSPECTIVE RECONSTRUCTION (written 2026-10-25T03:35+05:30)
+==========================================================================================
+
+Sources actually available and inspected:
+* File mtimes in the repo checkout (stat / ls -la).
+* Git history (`git log`) — no participant commits; HEAD = acb3dfc "chore: add CLAUDE.md".
+* Claude Code session transcript ~/.claude/projects/<this-repo>/62bef0d4-....jsonl (event timestamps).
+* ~/.bash_history exists but contains no entries mentioning this repo, so it gives no timeline.
+Not available: any notes, prior code, test runs, scores, or API calls. code/main.py was 0 bytes.
+
+Verified events (VERIFIED = timestamp taken from a file mtime or transcript event):
+
+## [2026-10-24T19:09+05:30] VERIFIED — Repository checkout
+All starter files (AGENTS.md, README.md, problem_statement.md, dataset/, code/) have mtime
+2026-10-24 19:09 IST, consistent with the clone time. No local modifications afterwards.
+
+## [2026-10-24T19:09+05:30 → 20:26+05:30] RETROSPECTIVE_ESTIMATE — Manual reading of challenge material
+No machine record exists for this interval. The user states they did manual work before using
+the agent; the content of that work cannot be verified. Duration ≈ 1h17m (gap between checkout
+and first agent prompt). No files were changed in this interval.
+
+## [2026-10-24T20:26:33+05:30] VERIFIED — Claude Code session started (planning)
+tool=Claude Code
+model=claude-sonnet-5-5
+Agent read problem_statement.md, README.md, AGENTS.md, agent_trace_instructions.md,
+deletion_rules.csv, evidence_files.csv, sample_output.csv heads and sample evidence files.
+The user asked that this planning prompt NOT be copied verbatim into log.txt, so only this summary is recorded.
+Outcome (20:28:34+05:30): agent proposed a deterministic pipeline (identity resolution →
+evidence index → state at audit_at → policy evaluation → step generation) with LLM use limited
+to intent classification and image/PDF extraction. No files changed (user asked for plan only).
+
+## [2026-10-25T00:51+05:30] VERIFIED — Repo opened in an IDE
+`.idea/` directory created (JetBrains IDE project files). No source files changed.
+
+## [2026-10-24T20:28+05:30 → 2026-10-25T03:32+05:30] RETROSPECTIVE_ESTIMATE — Plan review / design
+No machine record of the content of this interval apart from the IDE open above and two
+`/model` switches (01:36 IST → Fable 5.1, 03:32 IST → Opus 5.5). The detailed follow-up brief
+the user submitted at 03:32 IST (PDF→OCR→vision fallback chain, NVIDIA Nemotron intent model,
+10 synthetic scenarios) indicates design work happened here; its exact timing is not known.
+
+==========================================================================================
+SECTION B — LIVE LOG
+==========================================================================================
+
+## [2026-10-24T22:02:05Z] SESSION START
+
+tool=Claude Code
+model=claude-opus-5-5
+Repo Root: /home/voyager4/projects/hackerrank-orchestrate-october26
+Branch: main
+Worktree: main
+Parent Agent: none
+Language: py
+Time Remaining: not configured
+
+## [2026-10-24T22:05:00Z] Milestone 1 — Repository & environment inspection
+
+Work: Inspected repo state (clean, code/main.py empty, no log.txt), dataset sizes
+(518 cases, 32 samples, 850 identities, 4011 activity rows, 94 evidence files, 15 rules),
+tooling and credentials.
+Results:
+* Python 3.12.3; Tesseract 5.5.0 (eng, osd) at /usr/local/bin/tesseract.
+* Created .venv; installed pymupdf 2.0, pytesseract 0.3.13, pillow 13.0.0, pytest 9.1.1.
+* No NVIDIA_API_KEY (or any LLM key) present in the environment; no .env file.
+  → NVIDIA Nemotron adapter can be built but not exercised until a key is supplied.
+Files: log.txt (created), .venv/ (created, not for submission)
+Duration: ~3 min
+
+## [2026-10-24T22:45:00Z] Milestone 2 — Evidence study, parsers & extraction scaffolding
+
+Work: Studied all 32 samples and every evidence format (6 log line formats, snapshot bundles,
+service exports, generic operational-record JSON, SQLite dumps with primary/replica tables,
+handover text, 4 PDFs, 11 PNG screenshots). Key findings:
+* email_hash = sha256(lower(email)); historical emails/hashes come from user_audit_log.csv.
+* Test cases come in groups of ~10 per audit date, each audited against the evidence file captured
+  just before audit_at; cited evidence = latest observation <= audit_at.
+* Lookup keys often live on the *_started log line; results on *_completed → merge by trace_id.
+* Snapshot files imply absence of a subject's records that they do not list (sample case_31).
+* All 4 PDFs have native text; Tesseract on screenshots is noisy (e.g. "gmall.com", "‘oRD-").
+Design decision: deterministic evidence → observation → policy pipeline; LLM only for intent
+classification and optional vision fallback.
+Files: code/ghostaudit/{__init__,paths,model,llm}.py, code/ghostaudit/evidence/{common,logs,records}.py,
+code/ghostaudit/extraction/{__init__,cache,quality,image,vision}.py, .gitignore
+User request (verbatim): "hey simultaneously push on github , with every step comoleted , i have changes
+the remote to https://github.com/yashdodwani/Del_check_Hr, maintain .gitignore to avoid any sensitive
+file and venv to be pushed , continue"
+Action: added .gitignore (.env, .venv, caches, .idea, zips); committing and pushing each milestone to origin/main.
+Result: all modules byte-compile (py_compile OK). No tests yet.
+Duration: ~40 min
+tool=Claude Code
+model=claude-opus-5-5
