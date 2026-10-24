@@ -112,7 +112,7 @@ def parse_json(text: str, evidence_id: str, captured_at: str) -> tuple[list[Obse
     elif "service_exports" in data:  # per-service readback export
         ts0 = data.get("exported_at") or captured_at
         for svc, colls in data["service_exports"].items():
-            scope.add(svc)
+            # a readback export only covers the records it queried, so it implies no absence
             for coll, recs in colls.items():
                 for r in recs:
                     o = record_to_obs(evidence_id, r.get("observed_at") or ts0, coll, r, system_hint=svc,

@@ -97,3 +97,26 @@ Result: all modules byte-compile (py_compile OK). No tests yet.
 Duration: ~40 min
 tool=Claude Code
 model=claude-opus-5-5
+
+## [2026-10-24T23:40:00Z] Milestone 3 — Audit engine, identity resolution, workflow attribution, scorer
+
+Work: Implemented identity resolution (current + historical emails/phones/hashes, sha256 email hash),
+evidence index over all 94 files (PDF native text; PNG via Tesseract with cache), policy/step grammar,
+auditor (link → latest state <= audit_at → rule → steps), metrics scorer, and workflow attribution
+(time window + worker-result/reported_status agreement + learned timestamp-phase consistency) for
+records that are only ever observed without identifiers.
+Design decisions:
+* Identity links may come from any evidence file (who owns a record is time-invariant); record
+  STATE is only read from evidence captured <= audit_at.
+* Snapshot absence: a full snapshot (bundle/SQL) that covers the subject but omits a record proves
+  absence; for never-observed records the newest snapshot of the system is used; never for RETAIN records.
+* Readback service exports are not treated as full snapshots.
+Files: code/ghostaudit/{data,identity,policy,audit,attribution,metrics}.py, evidence/{documents,index}.py,
+extraction/pdf.py
+Results (public samples, all treated as authorized deletions, no LLM): status_accuracy 0.9688,
+sequence_accuracy 0.7812, step P/R 0.9526/0.9378 (baseline before attribution: seq 0.25, recall 0.79).
+Known unreachable: e.g. sample case_18 audit_record_6645 appears in no participant file.
+Extraction cache: second run 15/15 cache hits.
+Duration: ~55 min
+tool=Claude Code
+model=claude-opus-5-5

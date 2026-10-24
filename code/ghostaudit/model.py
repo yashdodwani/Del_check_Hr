@@ -50,6 +50,8 @@ def default_category(resource_id: str) -> str:
 
 def clean(value):
     """Normalise a raw field value; returns None for null-like values."""
+    if isinstance(value, (dict, list, tuple, set)):
+        return value or None
     if isinstance(value, str):
         value = value.strip()
     if value in NULLS:

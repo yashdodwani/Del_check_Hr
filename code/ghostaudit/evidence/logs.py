@@ -25,7 +25,7 @@ KV_RE = re.compile(r'(\w+)=(?:"((?:[^"\\]|\\.)*)"|([^\s|,"}]+))')
 JSON_KV_RE = re.compile(r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"')
 BRACKET_RE = re.compile(r"^\[(\w+)\]\s+\[([\w\-]+)\]\s+\[([\w\-]+)\]\s+(\w+):")
 SYSLOG_RE = re.compile(r"^<\d+>\d+\s+\S+\s+([\w\-]+)\s+([\w\-]+)\s+-\s+-")
-PIPE_RE = re.compile(r"^\s*(\w+)\s*\|\s*([\w\-]+)\s*\|\s*([\w\-]+)\s*\|\s*(\w+)\s*\|")
+PIPE_RE = re.compile(r"^\s*\|?\s*(\w+)\s*\|\s*([\w\-]+)\s*\|\s*([\w\-]+)\s*\|\s*(\w+)\s*\|")
 
 LINK_KEYS = ("lookup_key", "match_key", "scan_key", "subject_key", "subject_ref", "correlation_key",
              "matched_value", "lookup_value")
