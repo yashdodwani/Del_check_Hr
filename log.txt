@@ -550,3 +550,54 @@ branch=main
 repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
 worktree=main
 parent_agent=none
+
+## [2026-10-25T11:40:00+05:30] Commit evaluation report, rebuild code.zip, validate output
+
+User Prompt (verbatim, secrets redacted):
+commit the modified evaluation_report.md, rebuild code.zip and confirm that output.csv still validates (up to date)
+
+Agent Response Summary:
+Re-ran the full pipeline to a scratch path: 518 rows, 0 validation errors, byte-identical to the committed output.csv, so output.csv is up to date. Inspected the uncommitted evaluation_report.md diff before committing: it comes from a cache-hit re-run and replaces the measured Gemini intent latency (4248.79 ms) with 0.06 ms and shows cache_hit in the extraction line. Held the commit and the code.zip rebuild (the zip would package the same file) and asked the user whether to keep the committed report or regenerate it with a cleared cache.
+
+Actions:
+* git diff code/evaluation/evaluation_report.md
+* python3 code/main.py --output <scratchpad>/out.csv --summary <scratchpad>/sum.json; cmp with output.csv
+* No commit, no code.zip rebuild yet (awaiting user choice)
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none
+
+## [2026-10-25T12:30:00+05:30] Regenerate evaluation report from live API calls, validate, rebuild code.zip
+
+User Prompt (verbatim, secrets redacted):
+Back up the current evaluation_report.md, output.csv, and cache if needed.
+Clear only the relevant evaluation cache.
+Rerun the evaluation and capture genuine API latency, cache statistics, and failures.
+Update evaluation_report.md using those results.
+Validate the regenerated output: 518 rows, zero validation errors, and byte-for-byte comparison against the committed output.csv.
+Rebuild code.zip and inspect its contents to ensure it includes the corrected report and excludes .env, API keys, and unnecessary cache files.
+Commit the modified report, rebuilt ZIP, and the appropriate log.txt entry together.
+
+Agent Response Summary:
+Backed up evaluation_report.md (working and committed versions), usage_report.md, output.csv and the intent/extraction/evaluation caches to the session scratchpad, then cleared only those three caches (the unused provider_bench cache was left alone). The report generator (code/evaluation/main.py) now records the evaluation run's own Gemini calls, failures, tokens and mean API latency per stage, the intent and extraction cache hit/miss counts, and labels the intent table column as wall time (it includes the client rate limiter). Re-ran `python3 code/evaluation/main.py --llm` from an empty cache: 63 live Gemini calls, 0 failed, 19,406 input / 4,890 output tokens; mean API latency 1.27 s per intent call and 2.05-2.32 s per vision call; 0 cache hits; intent accuracy 1.0 for baseline and LLM; samples status 1.0 / sequence 0.9062; synthetic 10/10. A full run to a scratch path produced 518 rows with 0 validation errors, byte-identical to the committed output.csv; 47 tests pass. Rebuilt code.zip (42 files): it contains the regenerated report and no .env, key values, caches or build output. code.zip is git-ignored, so it was force-added to honour the request. usage_report.md is unchanged (it describes the final full-dataset run).
+
+Actions:
+* Backup to <scratchpad>/backup-121404; removed code/.cache/{intent,extraction,evaluation}
+* Edited code/evaluation/main.py (API/cache/failure section, wall-time column label)
+* python3 code/evaluation/main.py --llm (twice; second run from a cleared cache is the one reported)
+* python3 code/main.py --output <scratchpad>/out2.csv; cmp against git HEAD output.csv; pytest (47 passed)
+* python3 code/package.py; unzip inspection and secret scan
+* git commit (report, generator, code.zip, log.txt) and push
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none

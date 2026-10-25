@@ -89,6 +89,7 @@ def intent_benchmark(use_llm: bool):
     results = {}
     systems = [("baseline", lambda t: baseline(t))]
     llm_note = "not run"
+    clf = None
     if use_llm:
         clf = IntentClassifier(llm_for_all=True)
         if clf.use_llm and clf.check_model():
@@ -116,7 +117,7 @@ def intent_benchmark(use_llm: bool):
                          "recall_delete": tp / (tp + fn_) if tp + fn_ else 1.0,
                          "confusion": {f"{g}→{p}": v for (g, p), v in sorted(conf.items())},
                          "mean_latency_ms": 1000 * sum(lat) / len(lat), "unresolved": failures}
-    return results, llm_note, Counter(src for _, _, src in labelled)
+    return results, llm_note, Counter(src for _, _, src in labelled), (clf.stats if llm_note == "run" else None)
 
 
 def attribution_holdout():
@@ -162,16 +163,21 @@ def improvements_from_log() -> str:
 def write_reports(args):
     say = lambda m: print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)  # noqa: E731
     say("public samples …")
-    sample_s, _ = run_set(DATASET_DIR, "sample_deletion_requests.csv", DATASET_DIR / "sample_output.csv", "samples",
+    sample_s, sample_sum = run_set(DATASET_DIR, "sample_deletion_requests.csv", DATASET_DIR / "sample_output.csv", "samples",
                           args.llm)
     say(f"samples done: status={sample_s['status_accuracy']} sequence={sample_s['sequence_accuracy']}; synthetic …")
     from synthetic.generate import Builder
     Builder().build()
     syn_root = CODE / "synthetic" / "build" / "dataset"
+    sample_usage = USAGE.as_dict()
     syn_s, syn_sum = run_set(syn_root, "deletion_requests.csv", CODE / "synthetic" / "expected_output.csv",
                              "synthetic", args.llm)
     say(f"synthetic done: status={syn_s['status_accuracy']} sequence={syn_s['sequence_accuracy']}; intent benchmark …")
-    intent, llm_note, intent_sources = intent_benchmark(args.llm)
+    before_intent = USAGE.as_dict()
+    intent, llm_note, intent_sources, intent_cache = intent_benchmark(args.llm)
+    stage_usage = [("public samples (vision fallback)", {}, sample_usage),
+                   ("synthetic cases (vision fallback)", sample_usage, before_intent),
+                   ("intent benchmark (LLM for every text)", before_intent, USAGE.as_dict())]
     say(f"intent done ({llm_note}); attribution hold-out …")
     hold = attribution_holdout()
     say("writing reports")
@@ -213,12 +219,32 @@ def write_reports(args):
               f"Labelled texts: {dict(intent_sources)} (public samples are all deletion requests; the controlled set "
               "includes multilingual deletions and texts that mention deletion without authorising it).",
               f"Intent LLM (`{IntentClassifier().model}`): {llm_note}.", "",
-              "| System | n | Accuracy | Precision (DELETE) | Recall (DELETE) | Unresolved | Mean latency (ms) |",
+              "| System | n | Accuracy | Precision (DELETE) | Recall (DELETE) | Unresolved | Mean wall time / text (ms) |",
               "|---|---|---|---|---|---|---|"]
     for name, r in intent.items():
         lines.append(f"| {name} | {r['n']} | {r['accuracy']:.4f} | {r['precision_delete']:.4f} | "
                      f"{r['recall_delete']:.4f} | {r['unresolved']} | {r['mean_latency_ms']:.2f} |")
     lines += [""] + [f"* {name} confusion: {r['confusion']}" for name, r in intent.items()]
+    lines += ["", "Wall time per text includes the client-side rate limiter (`GEMINI_RPM`, default 14 requests/min), "
+              "so it is dominated by throttling; the API's own latency is in the table below."]
+    if intent_cache is not None:
+        lines.append(f"* intent cache during the benchmark: {intent_cache['cache_hits']} hits, "
+                     f"{intent_cache['llm']} live LLM calls, {intent_cache['llm_failures']} failed attempts, "
+                     f"{intent_cache['unresolved']} unresolved")
+    lines += ["", "### API calls, latency and cache during this evaluation run", "",
+              "| Stage | Model | Calls | Failed calls | Input tokens | Output tokens | Mean API latency / call (s) |",
+              "|---|---|---|---|---|---|---|"]
+    for stage, start, end in stage_usage:
+        for model, u in sorted(end.items()):
+            d = {k: u[k] - start.get(model, {}).get(k, 0) for k in u}
+            if d["calls"]:
+                lines.append(f"| {stage} | {model} | {d['calls']} | {d['failed_calls']} | {d['input_tokens']} | "
+                             f"{d['output_tokens']} | {d['latency_s'] / d['calls']:.2f} |")
+    lines += ["", f"* extraction cache, public samples: {sample_sum['extraction_cache']}",
+              f"* extraction cache, synthetic cases: {syn_sum['extraction_cache']}",
+              "* API latency is timed around each HTTP request only, after the rate limiter has released it; "
+              "every attempt (including retries and HTTP 429s) counts as a call, and unsuccessful ones are also "
+              "counted as failed calls."]
     lines += ["", "## 4. Workflow-attribution hold-out check", "",
               "Accounts that *are* linked to a request through evidence were hidden, and the activity-based "
               "attribution (time window + worker-result/reported-status agreement + learned timestamp phases) was "
