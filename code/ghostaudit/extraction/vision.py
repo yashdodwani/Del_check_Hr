@@ -1,20 +1,18 @@
 """Selective vision-model fallback for layout-sensitive or low-quality OCR.
 
-Only invoked when the quality gate fails or layout carries meaning. Default model: ``gemini-3.5-flash-lite``
-(Google Gemini API); ``GHOST_VISION_PROVIDER=nvidia`` selects ``nvidia/nemotron-3-nano-omni-30b-a3b-reasoning``.
-A provider is used only when its key is set *and* it lists that exact model id — no silent substitution.
-Otherwise the caller keeps the OCR text and records ``vision_unavailable``.
+Only invoked when the quality gate fails or layout carries meaning. Model: ``gemini-3.5-flash-lite``
+(Google Gemini API; ``GEMINI_VISION_MODEL`` overrides). It is used only when the Gemini key is set *and* the
+API lists that exact model id — no silent substitution. Otherwise the caller keeps the OCR text and
+records ``vision_unavailable``.
 """
 
 from __future__ import annotations
 
-import base64
-import io
 import os
 import re
 
 from ..gemini import GEMINI_MODEL, GeminiClient, gemini_key, image_part
-from ..llm import LLMUnavailable, NvidiaClient
+from ..llm import LLMUnavailable
 
 PROMPT = (
     "Transcribe this business document/screenshot faithfully. Output one line per table row or field, "
@@ -22,40 +20,21 @@ PROMPT = (
     "backup_123, user ids, order numbers, timestamps, statuses) exactly. Do not summarise or infer."
 )
 
-
-VISION_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-DEFAULT_VISION_PROVIDER = "gemini"  # chosen by the provider benchmark (code/evaluation/provider_benchmark.md)
-THINK_RE = re.compile(r"<think>.*?</think>", re.S)
 _served: dict = {}
 
 
-def vision_provider() -> str:
-    return os.environ.get("GHOST_VISION_PROVIDER", DEFAULT_VISION_PROVIDER).lower()
+def vision_model() -> str:
+    return os.environ.get("GEMINI_VISION_MODEL") or GEMINI_MODEL
 
 
-def vision_model(provider: str | None = None) -> str | None:
-    if (provider or vision_provider()) == "gemini":
-        return os.environ.get("GEMINI_VISION_MODEL") or GEMINI_MODEL
-    return os.environ.get("NVIDIA_VISION_MODEL") or VISION_MODEL
-
-
-def vision_enabled(provider: str | None = None) -> bool:
-    """Key present and the exact model id served by the provider (checked once per process)."""
-    provider = provider or vision_provider()
-    model = vision_model(provider)
-    key = gemini_key() if provider == "gemini" else os.environ.get("NVIDIA_API_KEY")
-    if not (model and key):
+def vision_enabled() -> bool:
+    """Key present and the exact model id served by the API (checked once per process)."""
+    model = vision_model()
+    if not gemini_key():
         return False
-    if (provider, model) not in _served:
-        client = GeminiClient(timeout=20) if provider == "gemini" else NvidiaClient(timeout=20)
-        _served[(provider, model)] = client.model_available(model)
-    return _served[(provider, model)]
-
-
-def strip_reasoning(text: str) -> str:
-    """The reasoning model may prepend a <think> block; keep only the transcription."""
-    text = THINK_RE.sub("", text or "")
-    return text.split("</think>", 1)[-1].strip()
+    if model not in _served:
+        _served[model] = GeminiClient(timeout=20).model_available(model)
+    return _served[model]
 
 
 def merge_with_ocr(ocr_lines: list[str], vision_text: str, cutoff: float = 0.75) -> tuple[list[str], list]:
@@ -90,33 +69,11 @@ def merge_with_ocr(ocr_lines: list[str], vision_text: str, cutoff: float = 0.75)
     return merged, corrections
 
 
-def transcribe_image(pil_image, client=None, max_side: int = 1600, provider: str | None = None) -> str | None:
-    provider = provider or vision_provider()
-    model = vision_model(provider)
-    if not model:
-        return None
-    if provider == "gemini":
-        client = client or GeminiClient(timeout=60, max_retries=2)
-        try:
-            text, _ = client.generate(model, [{"text": PROMPT}, image_part(pil_image, max_side)], max_tokens=2048)
-            return text.strip() or None
-        except LLMUnavailable:
-            return None
-    client = client or NvidiaClient(timeout=45, max_retries=2)  # normal latency ~10-12 s with thinking off
-    img = pil_image.convert("RGB")
-    scale = min(1.0, max_side / max(img.size))
-    if scale < 1.0:
-        img = img.resize((int(img.width * scale), int(img.height * scale)))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    messages = [{"role": "user", "content": [
-        {"type": "text", "text": PROMPT},
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-    ]}]
+def transcribe_image(pil_image, client=None, max_side: int = 1600) -> str | None:
+    client = client or GeminiClient(timeout=60, max_retries=2)
     try:
-        # thinking disabled (see NvidiaClient.chat): ~10 s per screenshot instead of 1-2.5 min
-        text, _ = client.chat(model, messages, temperature=0.0, max_tokens=2048)
-        return strip_reasoning(text) or None
+        text, _ = client.generate(vision_model(), [{"text": PROMPT}, image_part(pil_image, max_side)],
+                                  max_tokens=2048)
+        return text.strip() or None
     except LLMUnavailable:
         return None

@@ -1,21 +1,13 @@
-"""Minimal NVIDIA API (OpenAI-compatible) client with bounded retries, timeouts and usage accounting.
+"""Shared LLM plumbing: the error type raised by model clients and in-process usage accounting.
 
-Credentials come only from the environment (``NVIDIA_API_KEY``); the key is never logged or printed.
-Uses the standard library so no SDK is required.
+Usage (calls, failures, input/output tokens, latency) is recorded per model from the API's own usage
+fields and written into run_summary.json → usage_report.md.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import threading
-import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
-
-DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
-INTENT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 
 class LLMUnavailable(RuntimeError):
@@ -50,82 +42,3 @@ class UsageTracker:
 
 
 USAGE = UsageTracker()
-
-
-class NvidiaClient:
-    def __init__(self, api_key=None, base_url=None, timeout=30.0, max_retries=3):
-        self.api_key = api_key or os.environ.get("NVIDIA_API_KEY")
-        self.base_url = (base_url or os.environ.get("NVIDIA_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self.timeout = timeout
-        self.max_retries = max_retries
-
-    @property
-    def available(self) -> bool:
-        return bool(self.api_key)
-
-    def _request(self, method, path, body=None):
-        if not self.api_key:
-            raise LLMUnavailable("NVIDIA_API_KEY is not set")
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        })
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            return json.loads(resp.read().decode())
-
-    def list_models(self) -> list[str]:
-        return sorted(m.get("id") for m in self._request("GET", "/models").get("data", []))
-
-    def model_available(self, model: str) -> bool:
-        try:
-            return model in self.list_models()
-        except Exception:  # noqa: BLE001 - availability probe must never crash the pipeline
-            return False
-
-    def chat(self, model, messages, *, temperature=0.0, max_tokens=400, response_format=None, extra=None,
-             thinking=False):
-        """Returns (content, usage_dict). Retries transient failures with exponential backoff.
-
-        Nemotron 3 / 3.5 models reason by default; with a small token budget the whole budget is spent on
-        hidden reasoning and ``content`` comes back empty. Extraction/classification does not need it, so
-        thinking is disabled via ``chat_template_kwargs`` unless ``thinking=True``.
-        """
-        body = {"model": model, "messages": messages, "temperature": temperature, "top_p": 1.0,
-                "max_tokens": max_tokens, "stream": False}
-        if response_format:
-            body["response_format"] = response_format
-        if not thinking:
-            body["chat_template_kwargs"] = {"enable_thinking": False}
-        if extra:
-            body.update(extra)
-        last = None
-        for attempt in range(self.max_retries):
-            t0 = time.monotonic()
-            try:
-                resp = self._request("POST", "/chat/completions", body)
-                usage = resp.get("usage") or {}
-                USAGE.record(model, ok=True, input_tokens=usage.get("prompt_tokens", 0),
-                             output_tokens=usage.get("completion_tokens", 0), latency=time.monotonic() - t0)
-                choice = resp["choices"][0]
-                content = choice["message"].get("content") or ""
-                if not content.strip() and choice.get("finish_reason") == "length":
-                    # deterministic outcome (budget consumed by reasoning): retrying the same body won't help
-                    raise LLMUnavailable("empty content: token budget exhausted (finish_reason=length)")
-                return content, usage
-            except urllib.error.HTTPError as e:
-                USAGE.record(model, ok=False, latency=time.monotonic() - t0)
-                last = f"HTTP {e.code}"
-                if e.code in (400, 401, 403, 404):
-                    if e.code == 400 and attempt == 0 and ("chat_template_kwargs" in body or "response_format" in body):
-                        # endpoint may not support these optional fields: retry once without them
-                        body.pop("chat_template_kwargs", None)
-                        body.pop("response_format", None)
-                        continue
-                    break
-            except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
-                USAGE.record(model, ok=False, latency=time.monotonic() - t0)
-                last = type(e).__name__
-            time.sleep(min(8.0, 0.5 * 2 ** attempt))
-        raise LLMUnavailable(f"chat failed after retries: {last}")

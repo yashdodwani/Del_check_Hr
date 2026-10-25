@@ -519,3 +519,34 @@ branch=main
 repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
 worktree=main
 parent_agent=none
+
+## [2026-10-25T00:55:00Z] Remove NVIDIA provider completely (Gemini-only), keep benchmark history in log
+
+User Prompt (verbatim, secrets redacted):
+remove the nvidia completely , but dont remove from log.txt , that we have compared them on benchmarks and then switched to gemini
+
+Agent Response Summary:
+Removed every NVIDIA/Nemotron code path, config and doc reference outside log.txt: NvidiaClient and the
+Nemotron model ids (llm.py now only holds LLMUnavailable + usage accounting), the provider switch in intent.py
+and extraction/vision.py (Gemini-only, incl. removal of the <think>-stripping helper), the provider
+benchmark script/report (code/evaluation/provider_benchmark.{py,md}), NVIDIA tests, README/.env.example
+mentions. The NVIDIA-vs-Gemini benchmark results and the reason for switching remain recorded in the
+earlier log.txt entries (2026-10-25T00:20Z and T00:40Z), which were not modified.
+Final clean run (extraction + intent caches cleared): 45 s, 518 rows, 0 validation errors, output.csv
+byte-identical to before; Gemini usage 3 vision calls, 0 failed, 3,442 in / 1,373 out tokens.
+Tests: 47 passed. git / reports / code.zip contain no NVIDIA references and no API keys. The user's own
+.env still contains NVIDIA_API_KEY (left untouched; it is git-ignored and no longer read by any code).
+
+Actions:
+* Edited code/ghostaudit/{llm,intent,pipeline}.py, extraction/vision.py, code/main.py, code/evaluation/main.py,
+  code/tests/{test_intent,test_extraction}.py, README.md, code/.env.example
+* Deleted code/evaluation/provider_benchmark.py and provider_benchmark.md
+* Ran python code/main.py (clean cache), code/evaluation/main.py --llm, pytest, code/package.py
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none

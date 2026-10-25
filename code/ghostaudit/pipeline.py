@@ -11,7 +11,7 @@ from .audit import Auditor
 from .data import Dataset
 from .evidence.index import EvidenceIndex
 from .intent import IntentClassifier, authorizes_deletion
-from .extraction.vision import vision_model, vision_provider
+from .extraction.vision import vision_model
 from .llm import USAGE
 from .output import validate_output, write_output
 
@@ -65,7 +65,7 @@ def run(dataset_root: Path | None = None, requests_file: str = "deletion_request
                                                                          "misses": index.cache.misses},
         "intent_stats": clf.stats, "llm": llm_status, "usage": USAGE.as_dict(),
         "attribution_phases": sorted(auditor.attribution.phases),
-        "vision_provider": vision_provider(), "vision_model": vision_model(), "seconds": round(time.monotonic() - t0, 2),
+        "vision_model": vision_model(), "seconds": round(time.monotonic() - t0, 2),
     }
     if summary_path:
         Path(summary_path).parent.mkdir(parents=True, exist_ok=True)

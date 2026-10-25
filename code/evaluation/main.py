@@ -1,7 +1,7 @@
 """Evaluation runner → evaluation/evaluation_report.md and evaluation/usage_report.md.
 
     python code/evaluation/main.py            # samples + synthetic + intent benchmark + attribution hold-out
-    python code/evaluation/main.py --llm      # additionally benchmark the NVIDIA intent model (needs NVIDIA_API_KEY)
+    python code/evaluation/main.py --llm      # additionally benchmark the Gemini intent model (needs GEMINI_API_KEY)
 
 All numbers in the reports are produced by this script from actual runs; nothing is typed in by hand
 except the narrative "failures found and improvements made" section, which is taken from log.txt.
@@ -25,15 +25,16 @@ from ghostaudit.audit import Auditor  # noqa: E402
 from ghostaudit.data import Dataset  # noqa: E402
 from ghostaudit.evidence.index import EvidenceIndex  # noqa: E402
 from ghostaudit.intent import IntentClassifier, baseline  # noqa: E402
-from ghostaudit.llm import INTENT_MODEL, USAGE  # noqa: E402
+from ghostaudit.gemini import GEMINI_MODEL  # noqa: E402
+from ghostaudit.llm import USAGE  # noqa: E402
 from ghostaudit.metrics import load_expected_csv, score  # noqa: E402
 from ghostaudit.paths import DATASET_DIR, EVALUATION_DIR, REPO_ROOT, load_dotenv  # noqa: E402
 from ghostaudit.pipeline import run  # noqa: E402
 
 SCRATCH = CODE / ".cache" / "evaluation"
 
-# Price assumptions for the cost estimate (USD per 1M tokens). The NVIDIA API catalogue endpoint is
-# free-tier for evaluation; set GHOST_PRICE_IN / GHOST_PRICE_OUT to model a paid deployment.
+# Price assumptions for the cost estimate (USD per 1M tokens); set GHOST_PRICE_IN / GHOST_PRICE_OUT to match
+# the actual Gemini billing tier.
 PRICE_IN = float(os.environ.get("GHOST_PRICE_IN", "0.10"))
 PRICE_OUT = float(os.environ.get("GHOST_PRICE_OUT", "0.40"))
 
@@ -211,8 +212,7 @@ def write_reports(args):
               "## 3. Intent classification benchmark", "",
               f"Labelled texts: {dict(intent_sources)} (public samples are all deletion requests; the controlled set "
               "includes multilingual deletions and texts that mention deletion without authorising it).",
-              f"Intent LLM (`{IntentClassifier().model}`): {llm_note}. Provider comparison: "
-              "`code/evaluation/provider_benchmark.md`.", "",
+              f"Intent LLM (`{IntentClassifier().model}`): {llm_note}.", "",
               "| System | n | Accuracy | Precision (DELETE) | Recall (DELETE) | Unresolved | Mean latency (ms) |",
               "|---|---|---|---|---|---|---|"]
     for name, r in intent.items():
@@ -249,9 +249,10 @@ def write_reports(args):
               "## 7. Known limitations", "",
               "* The attribution step relies on timing regularities of the deletion workflow; when several same-status "
               "requests report at the same time and have no other linked records, the assignment can be wrong (see §4).",
-              "* The vision fallback (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`) is only called with an "
-              "NVIDIA_API_KEY; without it, layout-sensitive screenshots rely on Tesseract plus identifier validation "
-              "and are flagged `needs_vision` in the extraction cache.",
+              "* The vision fallback (`gemini-3.5-flash-lite`) is only called with a Gemini API key; without it, "
+              "layout-sensitive screenshots rely on Tesseract plus identifier validation and are flagged "
+              "`needs_vision` in the extraction cache. Vision recall varies between calls, so its text is merged into "
+              "Tesseract's rows rather than replacing them.",
               "* Records that never appear in participant data cannot be reported."]
     (EVALUATION_DIR / "evaluation_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     write_usage_report(full)
@@ -266,7 +267,7 @@ def write_usage_report(full):
              "Source: `code/evaluation/run_summary.json`, written by the run of `python code/main.py` that produced "
              "the submitted `output.csv`.", "",
              f"* Requests processed: {n}",
-             f"* Intent model configured: `{llm.get('model', INTENT_MODEL)}` (provider: {llm.get('provider', 'nvidia')})",
+             f"* Intent model configured: `{llm.get('model', GEMINI_MODEL)}` (provider: Google Gemini API)",
              f"* API key present during the run: {llm.get('api_key_present', False)}",
              f"* Intent routing: {(full or {}).get('intent_stats', {})}",
              "* OCR: Tesseract (local, no tokens); vision fallback model: `"
@@ -279,8 +280,7 @@ def write_usage_report(full):
     for model, u in sorted(usage.items()):
         total = u["input_tokens"] + u["output_tokens"]
         cost = u["input_tokens"] / 1e6 * PRICE_IN + u["output_tokens"] / 1e6 * PRICE_OUT
-        provider = "Google Gemini API" if model.startswith("gemini") else "NVIDIA API"
-        lines.append(f"| {provider} | {model} | {u['calls']} | {u['failed_calls']} | {u['input_tokens']} | "
+        lines.append(f"| Google Gemini API | {model} | {u['calls']} | {u['failed_calls']} | {u['input_tokens']} | "
                      f"{u['output_tokens']} | {total} | {total / n:.2f} | {cost:.4f} | {cost / n:.6f} |")
         for k in tot:
             tot[k] += u[k]
@@ -300,7 +300,7 @@ def write_usage_report(full):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--llm", action="store_true", help="benchmark the NVIDIA intent model as well")
+    ap.add_argument("--llm", action="store_true", help="benchmark the Gemini intent model as well")
     args = ap.parse_args()
     load_dotenv()
     write_reports(args)

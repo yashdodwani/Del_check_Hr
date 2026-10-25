@@ -83,7 +83,7 @@ def test_image_vision_fallback_selected_but_unavailable(tmp_path, monkeypatch):
     img = Image.new("RGB", (300, 40), "white")
     ImageDraw.Draw(img).text((2, 2), "bkp_9 a@b", fill=(170, 170, 170), font=ImageFont.load_default(size=6))
     img.save(p)
-    for k in ("NVIDIA_API_KEY", "GEMINI_API_KEY", "Gemini_API_KEY", "GOOGLE_API_KEY"):
+    for k in ("GEMINI_API_KEY", "Gemini_API_KEY", "GOOGLE_API_KEY"):
         monkeypatch.delenv(k, raising=False)  # no key → vision cannot be used, must not be faked
     res = extract_image(p, cache=ExtractionCache(tmp_path / "c"))
     assert res["needs_vision"] is True
@@ -111,23 +111,18 @@ def test_synthetic_screenshot_ocr_recovers_ids(synthetic_dataset, tmp_path):
     assert all(l["box"] and len(l["box"]) == 4 for l in res["lines"])
 
 
-def test_vision_model_default_and_reasoning_stripped(monkeypatch):
+def test_vision_model_default(monkeypatch):
     from ghostaudit.extraction import vision
-    monkeypatch.delenv("NVIDIA_VISION_MODEL", raising=False)
-    monkeypatch.delenv("GHOST_VISION_PROVIDER", raising=False)
+    monkeypatch.delenv("GEMINI_VISION_MODEL", raising=False)
     assert vision.vision_model() == "gemini-3.5-flash-lite"
-    assert vision.vision_model("nvidia") == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    assert vision.strip_reasoning("<think>rows are...</think>\nbackup_1 | a@b.test") == "backup_1 | a@b.test"
 
 
 def test_vision_disabled_when_model_not_served(monkeypatch):
     from ghostaudit.extraction import vision
-    monkeypatch.setenv("NVIDIA_API_KEY", "test-key-not-real")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     monkeypatch.setattr(vision, "_served", {})
-    monkeypatch.setattr(vision.NvidiaClient, "model_available", lambda self, m: False)
     monkeypatch.setattr(vision.GeminiClient, "model_available", lambda self, m: False)
-    assert vision.vision_enabled("nvidia") is False and vision.vision_enabled("gemini") is False
+    assert vision.vision_enabled() is False
 
 
 def test_merge_keeps_ocr_rows_and_takes_vision_spellings():
@@ -139,15 +134,17 @@ def test_merge_keeps_ocr_rows_and_takes_vision_spellings():
     assert merged[1] == ocr[1] and len(corr) == 2
 
 
-def test_chat_disables_thinking_and_flags_exhausted_budget(monkeypatch):
-    from ghostaudit.llm import LLMUnavailable, NvidiaClient
+def test_gemini_minimal_thinking_and_empty_response_is_error(monkeypatch):
+    from ghostaudit.gemini import GeminiClient
+    from ghostaudit.llm import LLMUnavailable
     sent = {}
 
     def fake(self, method, path, body=None):
         sent.update(body)
-        return {"choices": [{"message": {"content": ""}, "finish_reason": "length"}], "usage": {}}
-    monkeypatch.setattr(NvidiaClient, "_request", fake)
-    c = NvidiaClient(api_key="x", max_retries=1)
-    with pytest.raises(LLMUnavailable, match="budget"):
-        c.chat("m", [{"role": "user", "content": "hi"}])
-    assert sent["chat_template_kwargs"] == {"enable_thinking": False}
+        return {"candidates": [{"content": {"parts": []}, "finishReason": "MAX_TOKENS"}], "usageMetadata": {}}
+    monkeypatch.setattr(GeminiClient, "_request", fake)
+    monkeypatch.setenv("GEMINI_RPM", "0")
+    c = GeminiClient(api_key="x", max_retries=1)
+    with pytest.raises(LLMUnavailable):
+        c.generate("m", [{"text": "hi"}])
+    assert sent["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}

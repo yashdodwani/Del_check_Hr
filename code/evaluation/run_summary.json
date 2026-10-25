@@ -10664,7 +10664,7 @@
   },
   "output": "/home/voyager4/projects/hackerrank-orchestrate-october26/output.csv",
   "requests": 518,
-  "seconds": 46.65,
+  "seconds": 44.57,
   "status_counts": {
    "COMPLETE": 149,
    "INCOMPLETE": 359,
@@ -10675,12 +10675,11 @@
     "calls": 3,
     "failed_calls": 0,
     "input_tokens": 3442,
-    "latency_s": 6.589347485998587,
-    "output_tokens": 1350
+    "latency_s": 7.14853361700807,
+    "output_tokens": 1373
    }
   },
   "validation_errors": [],
-  "vision_model": "gemini-3.5-flash-lite",
-  "vision_provider": "gemini"
+  "vision_model": "gemini-3.5-flash-lite"
  }
 }
