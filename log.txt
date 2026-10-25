@@ -601,3 +601,103 @@ branch=main
 repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
 worktree=main
 parent_agent=none
+
+## [2026-10-25T07:15:42Z] TIMESTAMP CORRECTION — Section B heading times verified against transcript and git
+
+Why: a review found Section B entries out of chronological order (01:35Z listed before 00:20Z, 00:40Z,
+00:55Z). Checking every heading against two independent records showed the file ORDER is correct
+(entries were appended in exactly the order they appear), but many HEADING TIMESTAMPS are wrong:
+they were estimated when written, not read from the clock. Several are hours later than the moment
+the entry was actually written, which is impossible for a live log. Per AGENTS.md §2 (append-only)
+the original entries are left unchanged; this entry supersedes their timestamps. No entry was moved.
+
+Sources: (1) write time = transcript timestamp of the tool call that appended the entry
+(~/.claude/projects/<this-repo>/62bef0d4-....jsonl); (2) git author time of the commit that
+included the work. Both are machine-recorded. Times in UTC (IST = UTC+05:30).
+
+| Entry (as headed in the log)                       | Heading says     | Actually written | Turn started (user msg) | Commit / time            |
+|----------------------------------------------------|------------------|------------------|-------------------------|--------------------------|
+| SESSION START                                      | 22:02:05Z        | 22:04:18Z        | 22:02:04Z               | -                        |
+| Milestone 1 — inspection                           | 22:05Z           | 22:04:18Z        | 22:02:04Z               | 2ba9579 22:14:23Z        |
+| Milestone 2 — parsers & extraction                 | 22:45Z           | 22:14:13Z        | 22:02:04Z               | 2ba9579 22:14:23Z        |
+| Milestone 3 — audit engine, attribution            | 23:40Z           | 22:28:23Z        | 22:02:04Z               | 9fce9db 22:28:24Z        |
+| Milestone 4 — per-request scoping                  | 00:05Z (10-25)   | 22:30:59Z        | 22:02:04Z               | 7abcecc 22:31:09Z        |
+| Milestone 5 — intent, first full run               | 00:25Z (10-25)   | 22:34:16Z        | 22:02:04Z               | 92f57a1 22:34:28Z        |
+| Milestone 6 — synthetic dataset                    | 00:50Z (10-25)   | 22:38:51Z        | 22:02:04Z               | 3de685e 22:38:53Z        |
+| Milestone 7 — regression tests                     | 01:05Z (10-25)   | 22:40:26Z        | 22:02:04Z               | f53576b 22:40:27Z        |
+| Milestone 8 — evaluation, README, packaging        | 01:20Z (10-25)   | 22:46:23Z        | 22:02:04Z               | e6cec5c 22:46:36Z        |
+| Implement extraction pipeline ... (turn summary)   | 01:22Z (10-25)   | 22:46:23Z        | 22:02:04Z               | e6cec5c 22:46:36Z        |
+| Set vision fallback model to nvidia/nemotron-...   | 01:35Z (10-25)   | 23:27:09Z (10-24)| 23:26:24Z               | da966e3 23:27:41Z        |
+| Diagnose slow main.py --llm evaluation             | 00:20Z (10-25)   | 00:39:11Z        | 23:47:40Z (10-24)       | a9901cf 00:39:14Z        |
+| Benchmark gemini vs NVIDIA; switch to Gemini       | 00:40Z (10-25)   | 00:39:11Z        | 00:06:22Z               | a9901cf 00:39:14Z        |
+| Remove NVIDIA provider completely                  | 00:55Z (10-25)   | 04:50:25Z        | 04:42:04Z               | 4fcbd61 04:50:27Z        |
+| Commit evaluation report, rebuild code.zip ...     | 11:40+05:30      | 11:59:50+05:30   | 11:59:09+05:30          | (included in f153b90)    |
+| Regenerate evaluation report from live API calls   | 12:30+05:30      | 12:26:55+05:30   | 12:13:41+05:30          | f153b90 12:26:56+05:30   |
+
+Dates: in the "Actually written", "Turn started" and "Commit" columns, every time down to the
+"Set vision fallback model" row is on 2026-10-24 UTC; every later time is on 2026-10-25 (except the
+turn start marked 10-24). The "Heading says" dates are as written in the original headings.
+
+Corrected reading of the timeline (measured, not estimated):
+* The implementation turn (Milestones 1-8) ran 22:02Z-22:46Z on 2026-10-24 (03:32-04:16 IST),
+  about 44 minutes, not the ~3h20m the original headings implied. Milestone times inside that
+  window are only as precise as the write times above. The work was done by the agent; this is
+  not a claim about how long the user worked.
+* The two "Diagnose" and "Benchmark" entries were written together at 00:39Z after both turns;
+  the diagnosis itself happened in the turn that started 23:47:40Z.
+* The NVIDIA removal happened at 04:42-04:50Z (10:12-10:20 IST), not 00:55Z.
+* Section A (retrospective) was re-checked against the transcript: the planning session start
+  (20:26:33 IST), planning reply (20:28:34 IST), /model switches (01:36:38 and 03:32 IST) and the
+  user's mention of earlier manual work all match. Its RETROSPECTIVE_ESTIMATE intervals contain
+  no invented activities and are left as written.
+
+Provider status (to remove any ambiguity from the historical NVIDIA entries above):
+* NVIDIA Nemotron models were used for intent and vision from 22:02Z to 00:39Z on 2026-10-24/25.
+  They were benchmarked against gemini-3.5-flash-lite (results in the "Benchmark" entry) and
+  replaced by Gemini in a9901cf, then removed from code, tests, docs and packaging in 4fcbd61.
+* Current implementation: Google Gemini gemini-3.5-flash-lite only, for ambiguous intent and the
+  vision OCR fallback. No NVIDIA code path, configuration or dependency remains.
+
+Not changed, with reasons:
+* Entries were not reordered: their order is already the true write order, and moving them would
+  break append-only (AGENTS.md §2) while making the file order wrong.
+* Long entries (e.g. the full implementation brief) were not shortened: AGENTS.md §5.2 requires the
+  user prompt verbatim, and §2 forbids rewriting prior entries.
+* From this entry on, heading timestamps are taken from the system clock (date) at write time.
+
+tool=Claude Code
+model=claude-opus-5-5
+
+## [2026-10-25T07:16:04Z] Review of log.txt timeline: verify timestamps, append correction instead of reordering
+
+User Prompt (verbatim, secrets redacted):
+High    Entries are out of chronological order. The 01:35Z NVIDIA vision entry appears before the 00:20Z debugging and 00:40Z Gemini benchmark entries.    Reorder those entries by timestamp, preserving their original timestamps.
+High    The final timestamps need verification. The log records a 12:30 IST evaluation, while the supplied conversation metadata places the current time earlier.    Verify the actual session timestamps before treating them as confirmed. Don't invent replacement times.
+Medium    Retrospective and live activity are mixed conceptually. The retrospective section is appropriately labelled, but some historical details are more precise than the evidence may support.    Keep estimates explicitly labelled and distinguish measured events from reconstructed timing.
+Medium    The original NVIDIA configuration appears in the historical record. This is legitimate because you explicitly wanted the comparison preserved, but it should not imply NVIDIA remains in the implementation.    Keep the benchmark history and make the subsequent Gemini-only switch unambiguous.
+Low    Some entries are overly verbose. The full implementation prompt occupies a large section of the log.    Retain a concise description of the requested work and its outcomes where possible, without removing material evidence or required activity details.
+
+What I would preserve
+- The synthetic dataset description and its 10/10 evaluation result.
+- The measured Gemini-versus-NVIDIA benchmark results, including failures and latency.
+- The NVIDIA removal entry, since it documents the transition to Gemini-only.
+- Actual test counts, output validation, API usage, and packaging checks.
+- The retrospective disclaimer and known limitations.
+What I would not do
+I would not delete the NVIDIA benchmark history, fabricate inactivity entries, or change timestamps merely to make the timeline look cleaner. The 01:35Z entry conflicts with the later-listed 00:20Z, 00:40Z, and 00:55Z entries, and its position in the implementation sequence makes a simple reorder unsafe without checking the original session transcript.
+
+Agent Response Summary:
+Checked every log heading against the session transcript (write time of each log append and each user message) and git commit times. The file order is the true write order; the defect is that many Section B heading timestamps were estimated and are wrong. Milestones 2-8 and the 01:22Z/01:35Z entries were stamped hours after they were actually written, the NVIDIA removal was stamped 00:55Z but happened at 04:50Z, and the IST entries were 11:40 (actually 11:59:50) and 12:30 (actually 12:26:55). The system clock read 12:44 IST at the start of this turn, so the 12:30 entry was not in the future, only imprecise. Did not reorder or trim entries (AGENTS.md §2 append-only, §5.2 verbatim prompt); instead appended a TIMESTAMP CORRECTION entry with verified times, re-checked Section A (all verified claims match), and stated the Gemini-only provider status explicitly.
+
+Actions:
+* grep log headings; git log --format with author times; parsed transcript timestamps for user messages and log.txt appends
+* Appended "TIMESTAMP CORRECTION" entry and this entry to log.txt (no prior entry edited, moved or deleted)
+* git commit and push
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none
