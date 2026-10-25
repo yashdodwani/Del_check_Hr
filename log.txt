@@ -453,3 +453,69 @@ branch=main
 repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
 worktree=main
 parent_agent=none
+
+## [2026-10-25T00:20:00Z] Diagnose slow `main.py --llm` evaluation (30+ min) after NVIDIA key added
+
+User Prompt (verbatim, secrets redacted):
+ voyager4@cassini:~/projects/hackerrank-orchestrate-october26$ cd code/
+(.venv) voyager4@cassini:~/projects/hackerrank-orchestrate-october26/code$ cd evaluation/
+(.venv) voyager4@cassini:~/projects/hackerrank-orchestrate-october26/code/evaluation$ python3 main.py --llm  i have entered the nvidia api key but it's taking a while to excute .. waited half an hr
+
+Agent Response Summary:
+Root causes (measured): (1) both Nemotron models reason by default — the intent model spent its whole
+300-token budget on hidden reasoning (reasoning_tokens=300, finish_reason=length, empty content), so every
+answer failed JSON validation and was retried; (2) vision calls with reasoning took 1–2.5 min each.
+Fix: send chat_template_kwargs {enable_thinking: false} (intent 0.9 s / 60 tokens; vision ~10 s), treat
+"empty content + finish_reason=length" as a non-retryable error, vision timeout 90→45 s, progress output in
+the evaluator. Vision models emit one table cell per line, which broke row linking, so vision text is now
+merged into Tesseract's rows (ids/emails re-spelled from the vision text) instead of replacing it
+(PIPELINE_VERSION → extract-v3). Result: evaluation 30+ min → 2 min; full run 2m56s; output.csv unchanged.
+Nemotron intent benchmark (old prompt) scored 77.6%: 9 follow-up requests ("verify my account was deleted",
+"finish the deletion") were labelled NON_DELETION. NOTE: a prompt clarification for such follow-ups was
+applied by a tool call the user then interrupted; it is in the code and was disclosed to the user.
+
+Actions:
+* Edited code/ghostaudit/llm.py, extraction/{vision,image,pdf,__init__}.py, intent.py (prompt), evaluation/main.py,
+  tests/test_extraction.py (+2 tests, 46 passed)
+* Ran probes against the NVIDIA API (no secrets printed), python code/main.py, code/evaluation/main.py --llm
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none
+
+## [2026-10-25T00:40:00Z] Benchmark gemini-3.5-flash-lite vs NVIDIA for intent + vision; switch to Gemini
+
+User Prompt (verbatim, secrets redacted):
+have included the gemini api key in .env file try to use gemini model :gemini-3.5-flash-lite for intent recognizition and check how it's performing , if performing well , if performing well replace all nvidia intent calls with it ... also test it on vision task , if performing well replace it with vision model too
+
+Agent Response Summary:
+Verified `gemini-3.5-flash-lite` is listed for the key (key read from Gemini_API_KEY, sent only in the
+x-goog-api-key header). Added a Gemini REST client (thinkingLevel=minimal, JSON schema output, 429
+retry-after handling, client-side pacing GEMINI_RPM=14 after hitting the free-tier per-minute quota) and
+made intent + vision provider-pluggable. Same prompt for both providers:
+* Intent — Gemini: labelled 58/58, eval subset 112/112, 0/83 failed calls. Nemotron: labelled 58/58,
+  eval subset 99.1% (1 unresolved) sequentially; 21/67 failed calls sequential, 313/377 with 4 parallel.
+* Vision (11 real + 2 synthetic images) — Gemini: recall 1.000 (0.909 on a re-run), 1 near-miss (actually a
+  real decoy address), synthetic 6/6, 0 failures, 4.4 s; Nemotron-omni: recall 0.970 → 0.636 on re-run,
+  2 near-misses, 2–6 failed calls, 9–10 s; Tesseract alone: recall 0.939, 6 misreads.
+Decision: Gemini is the default for intent and vision; NVIDIA remains selectable via GHOST_INTENT_PROVIDER /
+GHOST_VISION_PROVIDER. Final full run with Gemini: 48 s, 3 vision calls / 4,792 tokens, 0 failures,
+output.csv byte-identical (518 rows, 0 validation errors). Tests 48 passed. Secret scan of git, reports,
+log and code.zip: clean.
+
+Actions:
+* Created code/ghostaudit/gemini.py, code/evaluation/provider_benchmark.py (+ provider_benchmark.md)
+* Edited intent.py, extraction/vision.py, pipeline.py, evaluation/main.py, tests, README.md, code/.env.example
+* Ran provider benchmarks, python code/main.py, code/evaluation/main.py --llm, pytest, code/package.py
+
+Context:
+tool=Claude Code
+model=claude-opus-5-5
+branch=main
+repo_root=/home/voyager4/projects/hackerrank-orchestrate-october26
+worktree=main
+parent_agent=none

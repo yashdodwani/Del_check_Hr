@@ -11,7 +11,8 @@ from .audit import Auditor
 from .data import Dataset
 from .evidence.index import EvidenceIndex
 from .intent import IntentClassifier, authorizes_deletion
-from .llm import INTENT_MODEL, USAGE
+from .extraction.vision import vision_model, vision_provider
+from .llm import USAGE
 from .output import validate_output, write_output
 
 
@@ -39,7 +40,7 @@ def run(dataset_root: Path | None = None, requests_file: str = "deletion_request
     auditor.prepare(pool)
 
     clf = IntentClassifier(use_llm=use_llm, llm_for_all=llm_for_all)
-    llm_status = {"model": INTENT_MODEL, "api_key_present": clf.client.available}
+    llm_status = {"provider": clf.provider, "model": clf.model, "api_key_present": clf.client.available}
     if clf.use_llm:
         llm_status["model_served"] = clf.check_model()
     rows, traces = [], {}
@@ -63,7 +64,8 @@ def run(dataset_root: Path | None = None, requests_file: str = "deletion_request
         "extraction": dict(index.extraction_stats), "extraction_cache": {"hits": index.cache.hits,
                                                                          "misses": index.cache.misses},
         "intent_stats": clf.stats, "llm": llm_status, "usage": USAGE.as_dict(),
-        "attribution_phases": sorted(auditor.attribution.phases), "seconds": round(time.monotonic() - t0, 2),
+        "attribution_phases": sorted(auditor.attribution.phases),
+        "vision_provider": vision_provider(), "vision_model": vision_model(), "seconds": round(time.monotonic() - t0, 2),
     }
     if summary_path:
         Path(summary_path).parent.mkdir(parents=True, exist_ok=True)

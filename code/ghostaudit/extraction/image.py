@@ -12,7 +12,7 @@ from PIL import Image, ImageFilter, ImageOps
 from . import PIPELINE_VERSION
 from .cache import ExtractionCache, file_sha256
 from .quality import KnownVocabulary, assess
-from .vision import transcribe_image, vision_enabled, vision_model
+from .vision import merge_with_ocr, transcribe_image, vision_enabled, vision_model
 
 try:
     import pytesseract
@@ -114,13 +114,18 @@ def extract_image(path: Path, evidence_id: str = "", *, cache: ExtractionCache |
         if allow_vision and vision_enabled() and pytesseract is not None:
             vtext = transcribe_image(Image.open(path))
             if vtext:
-                vq = assess(vtext, known=known)
-                result["decisions"].append({"variant": "vision", "score": vq.score, "reasons": vq.reasons})
+                merged, vcorr = merge_with_ocr([l["text"] for l in best["lines"]], vtext)
+                mtext = "\n".join(merged)
+                vq = assess(mtext, known=known)
+                result["decisions"].append({"variant": "tesseract+vision", "score": vq.score, "reasons": vq.reasons,
+                                            "vision_corrections": vcorr})
+                result["vision_text"] = vtext
                 if vq.score >= q.score:
-                    best = {"text": vtext, "lines": [{"text": l, "box": None, "confidence": None}
-                                                     for l in vtext.splitlines() if l.strip()],
-                            "variant": "vision", "mean_confidence": None}
-                    q, method = vq, "vision:" + str(vision_model())
+                    boxes = [l["box"] for l in best["lines"]]
+                    best = {"text": mtext, "lines": [{"text": t, "box": boxes[i] if i < len(boxes) else None,
+                                                      "confidence": None} for i, t in enumerate(merged)],
+                            "variant": best["variant"], "mean_confidence": best["mean_confidence"]}
+                    q, method = vq, "tesseract+vision:" + str(vision_model())
             else:
                 result["failures"].append("vision call failed; kept OCR output")
         else:

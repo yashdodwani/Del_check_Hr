@@ -91,11 +91,11 @@ def intent_benchmark(use_llm: bool):
     if use_llm:
         clf = IntentClassifier(llm_for_all=True)
         if clf.use_llm and clf.check_model():
-            systems.append((f"llm:{INTENT_MODEL}", lambda t: clf.classify(t)))
+            systems.append((f"llm:{clf.model}", lambda t: clf.classify(t)))
             llm_note = "run"
         else:
-            llm_note = ("NVIDIA_API_KEY not set" if not clf.client.available
-                        else f"model {INTENT_MODEL} not listed by the endpoint")
+            llm_note = (f"{clf.provider} API key not set" if not clf.client.available
+                        else f"model {clf.model} not listed by the endpoint")
     for name, fn in systems:
         conf = Counter()
         lat = []
@@ -159,15 +159,21 @@ def improvements_from_log() -> str:
 
 
 def write_reports(args):
+    say = lambda m: print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)  # noqa: E731
+    say("public samples …")
     sample_s, _ = run_set(DATASET_DIR, "sample_deletion_requests.csv", DATASET_DIR / "sample_output.csv", "samples",
                           args.llm)
+    say(f"samples done: status={sample_s['status_accuracy']} sequence={sample_s['sequence_accuracy']}; synthetic …")
     from synthetic.generate import Builder
     Builder().build()
     syn_root = CODE / "synthetic" / "build" / "dataset"
     syn_s, syn_sum = run_set(syn_root, "deletion_requests.csv", CODE / "synthetic" / "expected_output.csv",
                              "synthetic", args.llm)
+    say(f"synthetic done: status={syn_s['status_accuracy']} sequence={syn_s['sequence_accuracy']}; intent benchmark …")
     intent, llm_note, intent_sources = intent_benchmark(args.llm)
+    say(f"intent done ({llm_note}); attribution hold-out …")
     hold = attribution_holdout()
+    say("writing reports")
     full = json.loads((EVALUATION_DIR / "run_summary.json").read_text(encoding="utf-8"))["summary"] \
         if (EVALUATION_DIR / "run_summary.json").exists() else None
 
@@ -205,7 +211,8 @@ def write_reports(args):
               "## 3. Intent classification benchmark", "",
               f"Labelled texts: {dict(intent_sources)} (public samples are all deletion requests; the controlled set "
               "includes multilingual deletions and texts that mention deletion without authorising it).",
-              f"NVIDIA model `{INTENT_MODEL}`: {llm_note}.", "",
+              f"Intent LLM (`{IntentClassifier().model}`): {llm_note}. Provider comparison: "
+              "`code/evaluation/provider_benchmark.md`.", "",
               "| System | n | Accuracy | Precision (DELETE) | Recall (DELETE) | Unresolved | Mean latency (ms) |",
               "|---|---|---|---|---|---|---|"]
     for name, r in intent.items():
@@ -259,14 +266,12 @@ def write_usage_report(full):
              "Source: `code/evaluation/run_summary.json`, written by the run of `python code/main.py` that produced "
              "the submitted `output.csv`.", "",
              f"* Requests processed: {n}",
-             f"* Intent model configured: `{llm.get('model', INTENT_MODEL)}` (provider: NVIDIA API, "
-             f"`integrate.api.nvidia.com`)",
+             f"* Intent model configured: `{llm.get('model', INTENT_MODEL)}` (provider: {llm.get('provider', 'nvidia')})",
              f"* API key present during the run: {llm.get('api_key_present', False)}",
              f"* Intent routing: {(full or {}).get('intent_stats', {})}",
-             "* OCR: Tesseract (local, no tokens); vision fallback model: "
-             "`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (NVIDIA API) — "
-             + ("used" if any("omni" in m for m in usage) else "configured but not called in this run "
-                "(requires NVIDIA_API_KEY and the model being served)"), ""]
+             "* OCR: Tesseract (local, no tokens); vision fallback model: `"
+             + str((full or {}).get("vision_model")) + "` — "
+             + ("called (see table)" if (full or {}).get("vision_model") in usage else "not called in this run"), ""]
     lines += ["| Provider | Model | Calls | Failed calls | Input tokens | Output tokens | Total tokens | "
               "Avg tokens / request | Est. cost (USD) | Est. cost / request (USD) |",
               "|---|---|---|---|---|---|---|---|---|---|"]
@@ -274,7 +279,8 @@ def write_usage_report(full):
     for model, u in sorted(usage.items()):
         total = u["input_tokens"] + u["output_tokens"]
         cost = u["input_tokens"] / 1e6 * PRICE_IN + u["output_tokens"] / 1e6 * PRICE_OUT
-        lines.append(f"| NVIDIA | {model} | {u['calls']} | {u['failed_calls']} | {u['input_tokens']} | "
+        provider = "Google Gemini API" if model.startswith("gemini") else "NVIDIA API"
+        lines.append(f"| {provider} | {model} | {u['calls']} | {u['failed_calls']} | {u['input_tokens']} | "
                      f"{u['output_tokens']} | {total} | {total / n:.2f} | {cost:.4f} | {cost / n:.6f} |")
         for k in tot:
             tot[k] += u[k]
@@ -283,14 +289,12 @@ def write_usage_report(full):
     lines.append(f"| **All** | **all models** | {tot['calls']} | {tot['failed_calls']} | {tot['input_tokens']} | "
                  f"{tot['output_tokens']} | {total} | {total / n:.2f} | {cost:.4f} | {cost / n:.6f} |")
     lines += ["",
-              f"Cost assumptions: USD {PRICE_IN}/1M input and USD {PRICE_OUT}/1M output tokens "
-              "(override with `GHOST_PRICE_IN` / `GHOST_PRICE_OUT`).", ""]
+              f"Cost assumptions: USD {PRICE_IN}/1M input and USD {PRICE_OUT}/1M output tokens for every model "
+              "(override with `GHOST_PRICE_IN` / `GHOST_PRICE_OUT`); output tokens include any thinking tokens.",
+              "Calls and tokens come from each API's own usage fields (`usage` / `usageMetadata`), recorded in-process.", ""]
     if not usage:
-        lines += ["**No model calls were made in the final run.** `NVIDIA_API_KEY` was not available in the "
-                  "environment, and the deterministic baseline classified every request with high confidence "
-                  "(no AMBIGUOUS texts), so no request required the LLM and none was left unresolved. "
-                  "Token counts and cost are therefore zero; they are recorded from the API's `usage` field "
-                  "automatically when the key is configured."]
+        lines += ["**No model calls were made in the final run**: the deterministic baseline classified every request "
+                  "with high confidence (no AMBIGUOUS texts) and no screenshot required the vision fallback."]
     (EVALUATION_DIR / "usage_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

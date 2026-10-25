@@ -10640,13 +10640,14 @@
   ],
   "evidence_parse_errors": {},
   "extraction": {
-   "cache_hit": 15,
-   "image:tesseract": 11,
+   "cache_miss": 15,
+   "image:tesseract": 8,
+   "image:tesseract+vision:gemini-3.5-flash-lite": 3,
    "pdf:native": 4
   },
   "extraction_cache": {
-   "hits": 15,
-   "misses": 0
+   "hits": 0,
+   "misses": 15
   },
   "intent_stats": {
    "baseline": 518,
@@ -10656,18 +10657,30 @@
    "unresolved": 0
   },
   "llm": {
-   "api_key_present": false,
-   "model": "nvidia/nemotron-3.5-lightning-30b-a3b"
+   "api_key_present": true,
+   "model": "gemini-3.5-flash-lite",
+   "model_served": true,
+   "provider": "gemini"
   },
   "output": "/home/voyager4/projects/hackerrank-orchestrate-october26/output.csv",
   "requests": 518,
-  "seconds": 13.87,
+  "seconds": 46.65,
   "status_counts": {
    "COMPLETE": 149,
    "INCOMPLETE": 359,
    "NOT_APPLICABLE": 10
   },
-  "usage": {},
-  "validation_errors": []
+  "usage": {
+   "gemini-3.5-flash-lite": {
+    "calls": 3,
+    "failed_calls": 0,
+    "input_tokens": 3442,
+    "latency_s": 6.589347485998587,
+    "output_tokens": 1350
+   }
+  },
+  "validation_errors": [],
+  "vision_model": "gemini-3.5-flash-lite",
+  "vision_provider": "gemini"
  }
 }

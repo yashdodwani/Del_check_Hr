@@ -68,8 +68,7 @@ def _isolated_cache(tmp_path, monkeypatch):
 def test_llm_used_only_for_ambiguous_and_validated():
     fake = FakeClient([json.dumps({"label": "DELETE_REQUEST", "rationale": "asks to close", "evidence_span": "Hallo",
                                    "confidence": 0.7})])
-    clf = IntentClassifier(client=fake)
-    clf.cache_dir = clf.cache_dir  # noqa
+    clf = IntentClassifier(client=fake, provider="nvidia")
     assert clf.classify("Please delete my account.").method == "baseline" and fake.calls == 0
     res = clf.classify("Hallo")
     assert res.label == "DELETE_REQUEST" and res.method.startswith("llm:") and fake.calls == 1
@@ -77,7 +76,7 @@ def test_llm_used_only_for_ambiguous_and_validated():
 
 def test_llm_invalid_output_retried_then_unresolved_never_authorises():
     fake = FakeClient(["not json", json.dumps({"label": "MAYBE"}), LLMUnavailable("timeout")])
-    clf = IntentClassifier(client=fake, max_attempts=3)
+    clf = IntentClassifier(client=fake, max_attempts=3, provider="nvidia")
     res = clf.classify("Hallo")
     assert res.label == "UNRESOLVED" and fake.calls == 3
     assert not authorizes_deletion(res)
@@ -88,7 +87,7 @@ def test_model_not_served_is_not_substituted():
         def model_available(self, model):
             return False
     fake = NoModel([])
-    clf = IntentClassifier(client=fake)
+    clf = IntentClassifier(client=fake, provider="nvidia")
     res = clf.classify("Hallo")
     assert res.label == "UNRESOLVED" and fake.calls == 0 and clf.use_llm is False
 
@@ -97,3 +96,38 @@ def test_only_explicit_delete_authorises():
     for label, ok in [("DELETE_REQUEST", True), ("NON_DELETION_REQUEST", False), ("AMBIGUOUS", False),
                       ("UNRESOLVED", False)]:
         assert authorizes_deletion(intent_mod.IntentResult(label, "x")) is ok
+
+
+class FakeGemini:
+    available = True
+
+    def __init__(self, replies):
+        self.replies, self.calls, self.kwargs = list(replies), 0, None
+
+    def model_available(self, model):
+        return model == intent_mod.GEMINI_MODEL
+
+    def generate(self, model, parts, **kw):
+        self.calls += 1
+        self.kwargs = kw
+        r = self.replies.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r, {}
+
+
+def test_gemini_is_default_and_uses_schema():
+    assert intent_mod.default_provider() == "gemini"
+    fake = FakeGemini([json.dumps({"label": "NON_DELETION_REQUEST", "rationale": "greeting", "evidence_span": "Hallo",
+                                   "confidence": 0.6})])
+    clf = IntentClassifier(client=fake)
+    assert clf.model == "gemini-3.5-flash-lite"
+    res = clf.classify("Hallo")
+    assert res.label == "NON_DELETION_REQUEST" and res.method == "llm:gemini-3.5-flash-lite"
+    assert fake.kwargs["schema"]["properties"]["label"]["enum"] == list(intent_mod.LABELS)
+
+
+def test_gemini_failures_stay_unresolved():
+    fake = FakeGemini([LLMUnavailable("429"), "{}", "nope"])
+    res = IntentClassifier(client=fake).classify("Hallo")
+    assert res.label == "UNRESOLVED" and not authorizes_deletion(res)

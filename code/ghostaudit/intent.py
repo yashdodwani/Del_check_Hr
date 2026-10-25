@@ -5,8 +5,9 @@ Labels
 * NON_DELETION_REQUEST  access, export, correction, opt-out, login help, ... (incl. explicit "do not delete")
 * AMBIGUOUS             insufficient or conflicting signal
 
-Pipeline: deterministic multilingual baseline first; only AMBIGUOUS texts go to the LLM
-(``nvidia/nemotron-3.5-lightning-30b-a3b`` via the NVIDIA API). If the model is unavailable or
+Pipeline: deterministic multilingual baseline first; only AMBIGUOUS texts go to the LLM —
+``gemini-3.5-flash-lite`` (Google Gemini API) by default, ``nvidia/nemotron-3.5-lightning-30b-a3b`` selectable
+with ``GHOST_INTENT_PROVIDER=nvidia``. If the model is unavailable or
 returns invalid output after bounded retries, the label stays ``UNRESOLVED`` — it is never turned
 into permission to delete. The classifier does not decide COMPLETE/INCOMPLETE/NOT_APPLICABLE; the
 pipeline maps labels to authorisation separately (see ``authorizes_deletion``).
@@ -20,7 +21,12 @@ import re
 import time
 from dataclasses import asdict, dataclass
 
+import os
+
+from .gemini import GEMINI_MODEL, GeminiClient
 from .llm import INTENT_MODEL, LLMUnavailable, NvidiaClient
+
+DEFAULT_INTENT_PROVIDER = "gemini"  # chosen by the provider benchmark (code/evaluation/provider_benchmark.md)
 from .paths import CACHE_DIR
 
 LABELS = ("DELETE_REQUEST", "NON_DELETION_REQUEST", "AMBIGUOUS")
@@ -78,9 +84,12 @@ IMPERATIVE_DELETION = [
 
 SYSTEM_PROMPT = (
     "You classify customer privacy requests for a deletion-audit system. Decide whether the request "
-    "text explicitly authorises deleting the customer's account or personal data. Requests for access, "
-    "a copy/export, correction, marketing opt-out, login help or anything that says not to delete are "
-    "NON_DELETION_REQUEST. Use AMBIGUOUS only when the text gives insufficient or conflicting signal. "
+    "text authorises deleting the customer's account or personal data. DELETE_REQUEST also covers follow-ups "
+    "on the customer's own deletion: asking you to verify or confirm that their account/data was deleted, "
+    "to finish a deletion that failed or is partial, or to remove remaining copies (search results, exports, "
+    "attachments, analytics) — the customer wants their data gone. Requests for access, a copy/export, "
+    "correction, marketing opt-out, login help or anything that says not to delete are NON_DELETION_REQUEST. "
+    "Use AMBIGUOUS only when the text gives insufficient or conflicting signal. "
     "The text may be in any language. Reply with JSON only: "
     '{"label": "DELETE_REQUEST|NON_DELETION_REQUEST|AMBIGUOUS", "rationale": "<= 25 words", '
     '"evidence_span": "<exact quote from the request>", "confidence": 0.0-1.0}'
@@ -158,11 +167,24 @@ def _validate(raw: str, text: str) -> dict:
     return data
 
 
+PROVIDERS = {"nvidia": INTENT_MODEL, "gemini": GEMINI_MODEL}
+
+
+def default_provider() -> str:
+    return os.environ.get("GHOST_INTENT_PROVIDER", DEFAULT_INTENT_PROVIDER).lower()
+
+
 class IntentClassifier:
-    def __init__(self, client: NvidiaClient | None = None, model: str = INTENT_MODEL, use_llm: bool = True,
-                 llm_for_all: bool = False, max_attempts: int = 3):
-        self.client = client or NvidiaClient(timeout=30, max_retries=2)
-        self.model = model
+    def __init__(self, client=None, model: str | None = None, use_llm: bool = True,
+                 llm_for_all: bool = False, max_attempts: int = 3, provider: str | None = None):
+        self.provider = (provider or default_provider()).lower()
+        if self.provider not in PROVIDERS:
+            raise ValueError(f"unknown intent provider {self.provider!r}")
+        if client is None:
+            client = GeminiClient(timeout=30, max_retries=2) if self.provider == "gemini" else \
+                NvidiaClient(timeout=30, max_retries=2)
+        self.client = client
+        self.model = model or PROVIDERS[self.provider]
         self.use_llm = use_llm and self.client.available
         self.llm_for_all = llm_for_all
         self.max_attempts = max_attempts
@@ -192,8 +214,12 @@ class IntentClassifier:
         for _ in range(self.max_attempts):
             t0 = time.monotonic()
             try:
-                raw, _usage = self.client.chat(self.model, messages, temperature=0.0, max_tokens=300,
-                                               response_format={"type": "json_object"})
+                if self.provider == "gemini":
+                    raw, _usage = self.client.generate(self.model, [{"text": f"Request:\n{text}"}], system=SYSTEM_PROMPT,
+                                                       schema=JSON_SCHEMA, max_tokens=300)
+                else:
+                    raw, _usage = self.client.chat(self.model, messages, temperature=0.0, max_tokens=300,
+                                                   response_format={"type": "json_object"})
                 data = _validate(raw, text)
                 res = IntentResult(data["label"], f"llm:{self.model}", data.get("rationale", "")[:300],
                                    data.get("evidence_span", "")[:300], float(data.get("confidence", 0)),
@@ -218,7 +244,8 @@ class IntentClassifier:
                 self.stats["llm"] += 1
                 return res
         else:
-            res = IntentResult("UNRESOLVED", "unresolved", error="LLM unavailable (NVIDIA_API_KEY unset or model not served)")
+            res = IntentResult("UNRESOLVED", "unresolved",
+                               error=f"LLM unavailable ({self.provider} key unset or {self.model} not served)")
         self.stats["unresolved"] += 1
         res.baseline_label = base.label
         res.rationale = res.rationale or f"baseline: {base.rationale}"

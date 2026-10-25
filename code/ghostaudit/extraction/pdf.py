@@ -13,7 +13,7 @@ from pathlib import Path
 from . import PIPELINE_VERSION
 from .cache import ExtractionCache, file_sha256
 from .quality import KnownVocabulary, assess
-from .vision import transcribe_image, vision_enabled, vision_model
+from .vision import merge_with_ocr, transcribe_image, vision_enabled, vision_model
 
 try:
     import pymupdf
@@ -89,10 +89,13 @@ def extract_pdf(path: Path, evidence_id: str = "", *, cache: ExtractionCache | N
                         if allow_vision and vision_enabled():
                             vtext = transcribe_image(img)
                             if vtext:
-                                vq = assess(vtext, page_area=area, expect_identifiers=False, known=known)
-                                entry["decisions"].append(f"vision score={vq.score}")
+                                merged, vcorr = merge_with_ocr(entry["text"].splitlines(), vtext)
+                                mtext = "\n".join(merged)
+                                vq = assess(mtext, page_area=area, expect_identifiers=False, known=known)
+                                entry["decisions"].append(f"tesseract+vision score={vq.score} corrections={vcorr}")
+                                entry["vision_text"] = vtext
                                 if vq.score >= q.score:
-                                    entry.update(method="vision:" + str(vision_model()), text=vtext,
+                                    entry.update(method="tesseract+vision:" + str(vision_model()), text=mtext,
                                                  quality=vq.as_dict())
                             else:
                                 result["failures"].append(f"page {pno}: vision call failed; kept OCR")

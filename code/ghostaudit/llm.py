@@ -84,12 +84,20 @@ class NvidiaClient:
         except Exception:  # noqa: BLE001 - availability probe must never crash the pipeline
             return False
 
-    def chat(self, model, messages, *, temperature=0.0, max_tokens=400, response_format=None, extra=None):
-        """Returns (content, usage_dict). Retries transient failures with exponential backoff."""
+    def chat(self, model, messages, *, temperature=0.0, max_tokens=400, response_format=None, extra=None,
+             thinking=False):
+        """Returns (content, usage_dict). Retries transient failures with exponential backoff.
+
+        Nemotron 3 / 3.5 models reason by default; with a small token budget the whole budget is spent on
+        hidden reasoning and ``content`` comes back empty. Extraction/classification does not need it, so
+        thinking is disabled via ``chat_template_kwargs`` unless ``thinking=True``.
+        """
         body = {"model": model, "messages": messages, "temperature": temperature, "top_p": 1.0,
                 "max_tokens": max_tokens, "stream": False}
         if response_format:
             body["response_format"] = response_format
+        if not thinking:
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         if extra:
             body.update(extra)
         last = None
@@ -100,14 +108,20 @@ class NvidiaClient:
                 usage = resp.get("usage") or {}
                 USAGE.record(model, ok=True, input_tokens=usage.get("prompt_tokens", 0),
                              output_tokens=usage.get("completion_tokens", 0), latency=time.monotonic() - t0)
-                content = resp["choices"][0]["message"].get("content") or ""
+                choice = resp["choices"][0]
+                content = choice["message"].get("content") or ""
+                if not content.strip() and choice.get("finish_reason") == "length":
+                    # deterministic outcome (budget consumed by reasoning): retrying the same body won't help
+                    raise LLMUnavailable("empty content: token budget exhausted (finish_reason=length)")
                 return content, usage
             except urllib.error.HTTPError as e:
                 USAGE.record(model, ok=False, latency=time.monotonic() - t0)
                 last = f"HTTP {e.code}"
                 if e.code in (400, 401, 403, 404):
-                    if e.code == 400 and response_format and attempt == 0:
-                        body.pop("response_format", None)  # endpoint may not support structured output
+                    if e.code == 400 and attempt == 0 and ("chat_template_kwargs" in body or "response_format" in body):
+                        # endpoint may not support these optional fields: retry once without them
+                        body.pop("chat_template_kwargs", None)
+                        body.pop("response_format", None)
                         continue
                     break
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
