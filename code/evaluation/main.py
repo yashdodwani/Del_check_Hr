@@ -1,6 +1,7 @@
-"""Evaluation runner → evaluation/evaluation_report.md and evaluation/usage_report.md.
+"""Evaluation runner → evaluation_report.md and usage_report.md.
 
-    python code/evaluation/main.py            # samples + synthetic + intent benchmark + attribution hold-out
+    python code/evaluation/main.py  # samples + synthetic + intent
+                                    # benchmark + attribution hold-out
     python code/evaluation/main.py --llm      # additionally benchmark the Gemini intent model (needs GEMINI_API_KEY)
 
 All numbers in the reports are produced by this script from actual runs; nothing is typed in by hand
